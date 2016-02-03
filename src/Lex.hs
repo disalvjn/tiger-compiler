@@ -228,97 +228,99 @@ alex_accept = listArray (0::Int,104) [AlexAccNone,AlexAccNone,AlexAccNone,AlexAc
 -- Each action has type :: String -> Token
 
 -- The token type:
-data Token =
-   Type AlexPosn |
-   Var AlexPosn |
-   Function AlexPosn |
-   Break AlexPosn |
-   Of AlexPosn |
-   End AlexPosn |
-   In AlexPosn |
-   Nil AlexPosn |
-   Let AlexPosn |
-   Do AlexPosn |
-   To AlexPosn |
-   For AlexPosn |
-   While AlexPosn |
-   Else AlexPosn |
-   Then AlexPosn |
-   If AlexPosn |
-   Array AlexPosn |
-   Assign AlexPosn |
-   Or AlexPosn |
-   And AlexPosn |
-   Ge AlexPosn |
-   Gt AlexPosn |
-   Le AlexPosn |
-   Lt AlexPosn |
-   Neq AlexPosn |
-   Eq AlexPosn |
-   Divide AlexPosn |
-   Times AlexPosn |
-   Minus AlexPosn |
-   Plus AlexPosn |
-   Dot AlexPosn |
-   Rbrace AlexPosn |
-   Lbrace AlexPosn |
-   Rbrack AlexPosn |
-   Lbrack AlexPosn |
-   Rparen AlexPosn |
-   Lparen AlexPosn |
-   Semicolon AlexPosn |
-   Colon AlexPosn |
-   Comma AlexPosn |
-   String AlexPosn String |
-   Int AlexPosn Int |
-   Id AlexPosn String |
-   Eof AlexPosn
+data TokenType =
+   Type          |
+   Var           |
+   Function      |
+   Break         |
+   Of            |
+   End           |
+   In            |
+   Nil           |
+   Let           |
+   Do            |
+   To            |
+   For           |
+   While         |
+   Else          |
+   Then          |
+   If            |
+   Array         |
+   Assign        |
+   Or            |
+   And           |
+   Ge            |
+   Gt            |
+   Le            |
+   Lt            |
+   Neq           |
+   Eq            |
+   Divide        |
+   Times         |
+   Minus         |
+   Plus          |
+   Dot           |
+   Rbrace        |
+   Lbrace        |
+   Rbrack        |
+   Lbrack        |
+   Rparen        |
+   Lparen        |
+   Semicolon     |
+   Colon         |
+   Comma         |
+   String String |
+   Int Int       |
+   Id String     |
+   Eof
    deriving (Eq,Show)
 
+data Token = Token TokenType AlexPosn deriving (Eq, Show)
 
-alex_action_2 = \p s -> Type p 
-alex_action_3 =  \p s -> Var p
-alex_action_4 =  \p s -> Function p
-alex_action_5 =  \p s -> Break p
-alex_action_6 =  \p s -> Of p
-alex_action_7 =  \p s -> End p
-alex_action_8 =  \p s -> In p
-alex_action_9 =  \p s -> Nil p
-alex_action_10 =  \p s -> Let p
-alex_action_11 =  \p s -> Do p
-alex_action_12 =  \p s -> To p
-alex_action_13 =  \p s -> For p
-alex_action_14 =  \p s -> While p
-alex_action_15 =  \p s -> Else p
-alex_action_16 =  \p s -> Then p
-alex_action_17 =  \p s -> If p
-alex_action_18 =  \p s -> Array p
-alex_action_19 = \p s -> Assign p
-alex_action_20 =  \p s -> Or p
-alex_action_21 =  \p s -> And p
-alex_action_22 =  \p s -> Ge p
-alex_action_23 =  \p s -> Gt p
-alex_action_24 = \p s -> Le p
-alex_action_25 = \p s -> Lt p
-alex_action_26 = \p s -> Neq p
-alex_action_27 = \p s -> Eq p
-alex_action_28 = \p s -> Divide p 
-alex_action_29 = \p s -> Times p
-alex_action_30 = \p s -> Minus p
-alex_action_31 = \p s -> Plus p
-alex_action_32 = \p s -> Dot p
-alex_action_33 = \p s -> Lbrace p
-alex_action_34 = \p s -> Rbrace p
-alex_action_35 = \p s -> Lbrack p
-alex_action_36 = \p s -> Rbrack p
-alex_action_37 = \p s -> Lparen p
-alex_action_38 = \p s -> Rparen p
-alex_action_39 = \p s -> Semicolon p
-alex_action_40 = \p s -> Colon p
-alex_action_41 = \p s -> Comma p
-alex_action_42 = \p s -> String p s
-alex_action_43 =  \p s -> Int p (read s) 
-alex_action_44 =  \p s -> Id p s 
+
+alex_action_2 = \p s -> Token Type p 
+alex_action_3 =  \p s -> Token Var p
+alex_action_4 =  \p s -> Token Function p
+alex_action_5 =  \p s -> Token Break p
+alex_action_6 =  \p s -> Token Of p
+alex_action_7 =  \p s -> Token End p
+alex_action_8 =  \p s -> Token In p
+alex_action_9 =  \p s -> Token Nil p
+alex_action_10 =  \p s -> Token Let p
+alex_action_11 =  \p s -> Token Do p
+alex_action_12 =  \p s -> Token To p
+alex_action_13 =  \p s -> Token For p
+alex_action_14 =  \p s -> Token While p
+alex_action_15 =  \p s -> Token Else p
+alex_action_16 =  \p s -> Token Then p
+alex_action_17 =  \p s -> Token If p
+alex_action_18 =  \p s -> Token Array p
+alex_action_19 = \p s -> Token Assign p
+alex_action_20 =  \p s -> Token Or p
+alex_action_21 =  \p s -> Token And p
+alex_action_22 =  \p s -> Token Ge p
+alex_action_23 =  \p s -> Token Gt p
+alex_action_24 = \p s -> Token Le p
+alex_action_25 = \p s -> Token Lt p
+alex_action_26 = \p s -> Token Neq p
+alex_action_27 = \p s -> Token Eq p
+alex_action_28 = \p s -> Token Divide p 
+alex_action_29 = \p s -> Token Times p
+alex_action_30 = \p s -> Token Minus p
+alex_action_31 = \p s -> Token Plus p
+alex_action_32 = \p s -> Token Dot p
+alex_action_33 = \p s -> Token Lbrace p
+alex_action_34 = \p s -> Token Rbrace p
+alex_action_35 = \p s -> Token Lbrack p
+alex_action_36 = \p s -> Token Rbrack p
+alex_action_37 = \p s -> Token Lparen p
+alex_action_38 = \p s -> Token Rparen p
+alex_action_39 = \p s -> Token Semicolon p
+alex_action_40 = \p s -> Token Colon p
+alex_action_41 = \p s -> Token Comma p
+alex_action_42 = \p s -> Token (String s) p
+alex_action_43 =  \p s -> Token (Int (read s)) p 
+alex_action_44 =  \p s -> Token (Id s) p 
 {-# LINE 1 "templates/GenericTemplate.hs" #-}
 {-# LINE 1 "templates/GenericTemplate.hs" #-}
 {-# LINE 1 "<command-line>" #-}

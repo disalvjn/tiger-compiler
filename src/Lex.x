@@ -11,50 +11,50 @@ tokens :-
 
   $white+				;
   "--".*				;
-  type     {\p s -> Type p }
-  var      { \p s -> Var p}
-  function { \p s -> Function p}
-  break    { \p s -> Break p}
-  of       { \p s -> Of p}
-  end      { \p s -> End p}
-  in       { \p s -> In p}
-  nil      { \p s -> Nil p}
-  let      { \p s -> Let p}
-  do       { \p s -> Do p}
-  to       { \p s -> To p}
-  for      { \p s -> For p}
-  while    { \p s -> While p}
-  else     { \p s -> Else p}
-  then     { \p s -> Then p}
-  if       { \p s -> If p}
-  array    { \p s -> Array p}
-  ":="     {\p s -> Assign p}
-  or       { \p s -> Or p}
-  and      { \p s -> And p}
-  ">="     { \p s -> Ge p}
-  ">"      { \p s -> Gt p}
-  "<="     {\p s -> Le p}
-  "<"      {\p s -> Lt p}
-  "!="     {\p s -> Neq p}
-  "="      {\p s -> Eq p}
-  "/"      {\p s -> Divide p }
-  "*"      {\p s -> Times p}
-  "-"      {\p s -> Minus p}
-  "+"      {\p s -> Plus p}
-  "."      {\p s -> Dot p}
-  "{"      {\p s -> Lbrace p}
-  "}"      {\p s -> Rbrace p}
-  "["      {\p s -> Lbrack p}
-  "]"      {\p s -> Rbrack p}
-  "("      {\p s -> Lparen p}
-  ")"      {\p s -> Rparen p}
-  ";"      {\p s -> Semicolon p}
-  ":"      {\p s -> Colon p}
-  ","      {\p s -> Comma p}
-  \" .* \" {\p s -> String p s}
+  type     {\p s -> Token Type p }
+  var      { \p s -> Token Var p}
+  function { \p s -> Token Function p}
+  break    { \p s -> Token Break p}
+  of       { \p s -> Token Of p}
+  end      { \p s -> Token End p}
+  in       { \p s -> Token In p}
+  nil      { \p s -> Token Nil p}
+  let      { \p s -> Token Let p}
+  do       { \p s -> Token Do p}
+  to       { \p s -> Token To p}
+  for      { \p s -> Token For p}
+  while    { \p s -> Token While p}
+  else     { \p s -> Token Else p}
+  then     { \p s -> Token Then p}
+  if       { \p s -> Token If p}
+  array    { \p s -> Token Array p}
+  ":="     {\p s -> Token Assign p}
+  or       { \p s -> Token Or p}
+  and      { \p s -> Token And p}
+  ">="     { \p s -> Token Ge p}
+  ">"      { \p s -> Token Gt p}
+  "<="     {\p s -> Token Le p}
+  "<"      {\p s -> Token Lt p}
+  "!="     {\p s -> Token Neq p}
+  "="      {\p s -> Token Eq p}
+  "/"      {\p s -> Token Divide p }
+  "*"      {\p s -> Token Times p}
+  "-"      {\p s -> Token Minus p}
+  "+"      {\p s -> Token Plus p}
+  "."      {\p s -> Token Dot p}
+  "{"      {\p s -> Token Lbrace p}
+  "}"      {\p s -> Token Rbrace p}
+  "["      {\p s -> Token Lbrack p}
+  "]"      {\p s -> Token Rbrack p}
+  "("      {\p s -> Token Lparen p}
+  ")"      {\p s -> Token Rparen p}
+  ";"      {\p s -> Token Semicolon p}
+  ":"      {\p s -> Token Colon p}
+  ","      {\p s -> Token Comma p}
+  \" .* \" {\p s -> Token (String s) p}
 
-  $digit+				{ \p s -> Int p (read s) }
-  $alpha [$alpha $digit \_ \']*		{ \p s -> Id p s }
+  $digit+				{ \p s -> Token (Int (read s)) p }
+  $alpha [$alpha $digit \_ \']*		{ \p s -> Token (Id s) p }
 
 
 
@@ -62,51 +62,53 @@ tokens :-
 -- Each action has type :: String -> Token
 
 -- The token type:
-data Token =
-   Type AlexPosn          |
-   Var AlexPosn           |
-   Function AlexPosn      |
-   Break AlexPosn         |
-   Of AlexPosn            |
-   End AlexPosn           |
-   In AlexPosn            |
-   Nil AlexPosn           |
-   Let AlexPosn           |
-   Do AlexPosn            |
-   To AlexPosn            |
-   For AlexPosn           |
-   While AlexPosn         |
-   Else AlexPosn          |
-   Then AlexPosn          |
-   If AlexPosn            |
-   Array AlexPosn         |
-   Assign AlexPosn        |
-   Or AlexPosn            |
-   And AlexPosn           |
-   Ge AlexPosn            |
-   Gt AlexPosn            |
-   Le AlexPosn            |
-   Lt AlexPosn            |
-   Neq AlexPosn           |
-   Eq AlexPosn            |
-   Divide AlexPosn        |
-   Times AlexPosn         |
-   Minus AlexPosn         |
-   Plus AlexPosn          |
-   Dot AlexPosn           |
-   Rbrace AlexPosn        |
-   Lbrace AlexPosn        |
-   Rbrack AlexPosn        |
-   Lbrack AlexPosn        |
-   Rparen AlexPosn        |
-   Lparen AlexPosn        |
-   Semicolon AlexPosn     |
-   Colon AlexPosn         |
-   Comma AlexPosn         |
-   String AlexPosn String |
-   Int AlexPosn Int       |
-   Id AlexPosn String     |
-   Eof AlexPosn
+data TokenType =
+   Type          |
+   Var           |
+   Function      |
+   Break         |
+   Of            |
+   End           |
+   In            |
+   Nil           |
+   Let           |
+   Do            |
+   To            |
+   For           |
+   While         |
+   Else          |
+   Then          |
+   If            |
+   Array         |
+   Assign        |
+   Or            |
+   And           |
+   Ge            |
+   Gt            |
+   Le            |
+   Lt            |
+   Neq           |
+   Eq            |
+   Divide        |
+   Times         |
+   Minus         |
+   Plus          |
+   Dot           |
+   Rbrace        |
+   Lbrace        |
+   Rbrack        |
+   Lbrack        |
+   Rparen        |
+   Lparen        |
+   Semicolon     |
+   Colon         |
+   Comma         |
+   String String |
+   Int Int       |
+   Id String     |
+   Eof
    deriving (Eq,Show)
+
+data Token = Token TokenType AlexPosn deriving (Eq, Show)
 
 }
