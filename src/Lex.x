@@ -1,5 +1,5 @@
 {
-module Lex (Token(..), AlexPosn(..), alexScanTokens) where
+module Lex (Token(..), TokenType(..), AlexPosn(..), alexScanTokens) where
 }
 
 %wrapper "posn"

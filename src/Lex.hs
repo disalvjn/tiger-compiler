@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LINE 1 "Lex.x" #-}
 
-module Lex (Token(..), AlexPosn(..), alexScanTokens) where
+module Lex (Token(..), TokenType(..), AlexPosn(..), alexScanTokens) where
 
 #if __GLASGOW_HASKELL__ >= 603
 #include "ghcconfig.h"
