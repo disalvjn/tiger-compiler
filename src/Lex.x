@@ -10,7 +10,7 @@ $alpha = [a-zA-Z]		-- alphabetic characters
 tokens :-
 
   $white+				;
-  "--".*				;
+  "/*".*"*/"				;
   type     {\p s -> Token Type p }
   var      { \p s -> Token Var p}
   function { \p s -> Token Function p}

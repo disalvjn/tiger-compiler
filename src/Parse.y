@@ -1,12 +1,13 @@
 {
 module Parse (parse) where
-import Lex(Token(..), TokenType(..))
+import Lex(Token(..), TokenType(..), AlexPosn(..))
 import Data.Maybe
 import AST
 }
 
 %name parse
 %tokentype {Lex.Token}
+%error {parseError}
 
 %token
    type     {Token Type _}
@@ -56,29 +57,30 @@ import AST
 
 %%
 
-Exp : VarExp {$1}
+Exp : Var {VarExp $1}
 | nil {NilExp}
 | int {IntExp $1}
 | string {StringExp $1}
 | id '(' FunArgs ')' {CallExp $1 $3}
 | id '{' RecordFields '}' {RecordExp $3 $1}
 | '(' SeqExp ')' {SeqExp $2}
-| VarExp assign Exp {AssignExp $1 $3}
+| Var assign Exp {AssignExp $1 $3}
 | IfExp {$1}
 | while Exp do Exp {WhileExp $2 $4}
-| for VarExp assign Exp to Exp do Exp {ForExp $2 $4 $6 $8}
+| for id assign Exp to Exp do Exp {ForExp $2 $4 $6 $8}
 | break {BreakExp}
 | let DecList in Exp end {LetExp $2 $4}
 | id '[' Exp ']' of Exp {ArrayExp $1 $3 $6}
+| OpExp {$1}
 
 IfExp : if Exp then Exp AltExp {IfExp $2 $4 $5}
 
 AltExp : {Nothing}
 | else Exp {Just $2}
 
-VarExp : id {SimpleVar $1}
-| VarExp id {FieldVar $1 $2}
-| VarExp '[' Exp ']' {SubscriptVar $1 $3}
+Var : id {SimpleVar $1}
+| Var id {FieldVar $1 $2}
+| Var '[' Exp ']' {SubscriptVar $1 $3}
 
 FunArgs : FunArgsx {reverse $1}
 FunArgsx : {- empty -} {[]}
@@ -98,11 +100,11 @@ DecList : DecListr {reverse $1}
 DecListr : Dec {[$1]}
 | DecListr Dec {$2 : $1}
 
-Dec : FunDecList {$1}
+Dec : FunDecList {FunDec $1}
 | VarDec {$1}
-| TypeDecList {$1}
+| TypeDecList {TypeDec $1}
 
-FunDec : function id '(' TyFields ')' '=' Exp {Fundec $2 $4 Nothing $6}
+FunDec : function id '(' TyFields ')' '=' Exp {Fundec $2 $4 Nothing $7}
 | function id '(' TyFields ')' ':' id '=' Exp {Fundec $2 $4 (Just $7) $9}
 
 FunDecList : FunDecListr {reverse $1}
@@ -120,7 +122,7 @@ TypeDecListr : TypeDec {[$1]}
 TypeDec : type id '=' Ty {($2, $4)}
 
 Ty : id {NameTy $1}
-| '{' TyFields '}' {reverse $2}
+| '{' TyFields '}' {RecordTy (reverse $2)}
 | array of id {ArrayTy $3}
 
 TyFields : {[]}
@@ -137,4 +139,11 @@ Operator : '+' {PlusOp}
 | '<=' {LeOp}
 | '=' {EqOp}
 
-OpExp : Exp Operator Exp {OpExp $1 $2 $3}
+Sum :
+
+
+{
+parseError :: [Token] -> a
+parseError ((Token _ (AlexPn _ l c)) : _) =
+  error $ "Parse error at line " ++ (show l) ++ " col " ++  (show c)
+}

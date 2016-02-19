@@ -1,0 +1,5 @@
+*.o
+/src/Parse.hi
+/*.hi
+/src/Lex.hi
+/src/AST.hi

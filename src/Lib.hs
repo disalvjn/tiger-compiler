@@ -1,6 +1,5 @@
-module Lib
-    ( someFunc
-    ) where
+import Parse(parse)
+import Lex(alexScanTokens)
+import Control.Applicative
 
-someFunc :: IO ()
-someFunc = putStrLn "someFunc"
+p file = parse <$> alexScanTokens <$> readFile file
