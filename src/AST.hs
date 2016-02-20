@@ -8,7 +8,7 @@ data Var = SimpleVar Symbol
          deriving (Show, Eq, Ord)
 
 data Oper = PlusOp | MinusOp | TimesOp | DivideOp | EqOp
-          | NeqOp | LtOp | LeOp | GtOp | GeOp
+          | NeqOp | LtOp | LeOp | GtOp | GeOp | AndOp | OrOp
           deriving (Show, Eq, Ord)
 
 data Exp = VarExp Var

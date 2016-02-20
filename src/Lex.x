@@ -12,27 +12,27 @@ tokens :-
   $white+				;
   "/*".*"*/"				;
   type     {\p s -> Token Type p }
-  var      { \p s -> Token Var p}
-  function { \p s -> Token Function p}
-  break    { \p s -> Token Break p}
-  of       { \p s -> Token Of p}
-  end      { \p s -> Token End p}
-  in       { \p s -> Token In p}
-  nil      { \p s -> Token Nil p}
-  let      { \p s -> Token Let p}
-  do       { \p s -> Token Do p}
-  to       { \p s -> Token To p}
-  for      { \p s -> Token For p}
-  while    { \p s -> Token While p}
-  else     { \p s -> Token Else p}
-  then     { \p s -> Token Then p}
-  if       { \p s -> Token If p}
-  array    { \p s -> Token Array p}
+  var      {\p s -> Token Var p}
+  function {\p s -> Token Function p}
+  break    {\p s -> Token Break p}
+  of       {\p s -> Token Of p}
+  end      {\p s -> Token End p}
+  in       {\p s -> Token In p}
+  nil      {\p s -> Token Nil p}
+  let      {\p s -> Token Let p}
+  do       {\p s -> Token Do p}
+  to       {\p s -> Token To p}
+  for      {\p s -> Token For p}
+  while    {\p s -> Token While p}
+  else     {\p s -> Token Else p}
+  then     {\p s -> Token Then p}
+  if       {\p s -> Token If p}
+  array    {\p s -> Token Array p}
   ":="     {\p s -> Token Assign p}
-  or       { \p s -> Token Or p}
-  and      { \p s -> Token And p}
-  ">="     { \p s -> Token Ge p}
-  ">"      { \p s -> Token Gt p}
+  "&"      {\p s -> Token And p}
+  "|"      {\p s -> Token Or p}
+  ">="     {\p s -> Token Ge p}
+  ">"      {\p s -> Token Gt p}
   "<="     {\p s -> Token Le p}
   "<"      {\p s -> Token Lt p}
   "!="     {\p s -> Token Neq p}
@@ -51,7 +51,7 @@ tokens :-
   ";"      {\p s -> Token Semicolon p}
   ":"      {\p s -> Token Colon p}
   ","      {\p s -> Token Comma p}
-  \" .* \" {\p s -> Token (String s) p}
+  \" [^\"]* \" {\p s -> Token (String s) p}
 
   $digit+				{ \p s -> Token (Int (read s)) p }
   $alpha [$alpha $digit \_ \']*		{ \p s -> Token (Id s) p }

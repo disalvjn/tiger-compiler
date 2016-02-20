@@ -9,6 +9,8 @@ import AST
 %tokentype {Lex.Token}
 %error {parseError}
 
+{-- %expect 22 --}
+
 %token
    type     {Token Type _}
    var      {Token Var _}
@@ -53,11 +55,14 @@ import AST
    string   {Token (String $$) _ }
    int      {Token (Int $$) _}
    id       {Token (Id $$) _}
-   eof      {Token Eof _}
+
+{-- %left '+' '-' and or '>' '<' '>=' '<=' '=' '*' '/' --}
 
 %%
 
-Exp : Var {VarExp $1}
+Exp : OpExp {$1}
+
+ExpNoBinop : Var {VarExp $1}
 | nil {NilExp}
 | int {IntExp $1}
 | string {StringExp $1}
@@ -71,7 +76,6 @@ Exp : Var {VarExp $1}
 | break {BreakExp}
 | let DecList in Exp end {LetExp $2 $4}
 | id '[' Exp ']' of Exp {ArrayExp $1 $3 $6}
-| OpExp {$1}
 
 IfExp : if Exp then Exp AltExp {IfExp $2 $4 $5}
 
@@ -79,8 +83,9 @@ AltExp : {Nothing}
 | else Exp {Just $2}
 
 Var : id {SimpleVar $1}
-| Var id {FieldVar $1 $2}
+| Var '.' id {FieldVar $1 $3}
 | Var '[' Exp ']' {SubscriptVar $1 $3}
+| id '[' Exp ']' {SubscriptVar (SimpleVar $1) $3}
 
 FunArgs : FunArgsx {reverse $1}
 FunArgsx : {- empty -} {[]}
@@ -126,24 +131,41 @@ Ty : id {NameTy $1}
 | array of id {ArrayTy $3}
 
 TyFields : {[]}
-| TyFields ',' id ':' id { (Field $3 $5) : $1}
+| SomeTyFields {reverse $1}
+
+SomeTyFields : SomeTyFields ',' TyField {$3 : $1}
+| TyField {[$1]}
+TyField : id ':' id {Field $1 $3}
+
+OpExp : Equality {$1}
+| OpExp and Equality {OpExp $1 AndOp $3}
+| OpExp or Equality {OpExp $1 OrOp $3}
+
+Equality : Comparison {$1}
+| Equality '=' Comparison {OpExp $1 EqOp $3}
+| Equality '!=' Comparison {OpExp $1 NeqOp $3}
 
 
-Operator : '+' {PlusOp}
-| '-' {MinusOp}
-| '*' {TimesOp}
-| '/' {DivideOp}
-| '<' {LtOp}
-| '>' {GtOp}
-| '>=' {GeOp}
-| '<=' {LeOp}
-| '=' {EqOp}
+Comparison : Sum {$1}
+| Comparison '<' Sum {OpExp $1 LtOp $3}
+| Comparison '>' Sum {OpExp $1 GtOp $3}
+| Comparison '<=' Sum {OpExp $1 LeOp $3}
+| Comparison '>=' Sum {OpExp $1 GeOp $3}
 
-Sum :
+
+Sum: Product {$1}
+| Sum '+' Product {OpExp $1 PlusOp $3}
+| Sum '-' Product {OpExp $1 MinusOp $3}
+
+Product : ExpNoBinop {$1}
+| Product '*' ExpNoBinop {OpExp $1 TimesOp $3}
+| Product '/' ExpNoBinop {OpExp $1 DivideOp $3}
 
 
 {
 parseError :: [Token] -> a
 parseError ((Token _ (AlexPn _ l c)) : _) =
   error $ "Parse error at line " ++ (show l) ++ " col " ++  (show c)
+
+parseError [] = error "Error (and no tokens remain)"
 }
