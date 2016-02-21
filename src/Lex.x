@@ -1,5 +1,5 @@
 {
-module Lex (Token(..), TokenType(..), AlexPosn(..), alexScanTokens) where
+module Lex (Token(..), TokenType(..), Pos, alexScanTokens) where
 }
 
 %wrapper "posn"
@@ -11,50 +11,50 @@ tokens :-
 
   $white+				;
   "/*".*"*/"				;
-  type     {\p s -> Token Type p }
-  var      {\p s -> Token Var p}
-  function {\p s -> Token Function p}
-  break    {\p s -> Token Break p}
-  of       {\p s -> Token Of p}
-  end      {\p s -> Token End p}
-  in       {\p s -> Token In p}
-  nil      {\p s -> Token Nil p}
-  let      {\p s -> Token Let p}
-  do       {\p s -> Token Do p}
-  to       {\p s -> Token To p}
-  for      {\p s -> Token For p}
-  while    {\p s -> Token While p}
-  else     {\p s -> Token Else p}
-  then     {\p s -> Token Then p}
-  if       {\p s -> Token If p}
-  array    {\p s -> Token Array p}
-  ":="     {\p s -> Token Assign p}
-  "&"      {\p s -> Token And p}
-  "|"      {\p s -> Token Or p}
-  ">="     {\p s -> Token Ge p}
-  ">"      {\p s -> Token Gt p}
-  "<="     {\p s -> Token Le p}
-  "<"      {\p s -> Token Lt p}
-  "!="     {\p s -> Token Neq p}
-  "="      {\p s -> Token Eq p}
-  "/"      {\p s -> Token Divide p }
-  "*"      {\p s -> Token Times p}
-  "-"      {\p s -> Token Minus p}
-  "+"      {\p s -> Token Plus p}
-  "."      {\p s -> Token Dot p}
-  "{"      {\p s -> Token Lbrace p}
-  "}"      {\p s -> Token Rbrace p}
-  "["      {\p s -> Token Lbrack p}
-  "]"      {\p s -> Token Rbrack p}
-  "("      {\p s -> Token Lparen p}
-  ")"      {\p s -> Token Rparen p}
-  ";"      {\p s -> Token Semicolon p}
-  ":"      {\p s -> Token Colon p}
-  ","      {\p s -> Token Comma p}
-  \" [^\"]* \" {\p s -> Token (String s) p}
+  type     {\p s -> Token Type (alexPosnToPos p) }
+  var      {\p s -> Token Var (alexPosnToPos p)}
+  function {\p s -> Token Function (alexPosnToPos p)}
+  break    {\p s -> Token Break (alexPosnToPos p)}
+  of       {\p s -> Token Of (alexPosnToPos p)}
+  end      {\p s -> Token End (alexPosnToPos p)}
+  in       {\p s -> Token In (alexPosnToPos p)}
+  nil      {\p s -> Token Nil (alexPosnToPos p)}
+  let      {\p s -> Token Let (alexPosnToPos p)}
+  do       {\p s -> Token Do (alexPosnToPos p)}
+  to       {\p s -> Token To (alexPosnToPos p)}
+  for      {\p s -> Token For (alexPosnToPos p)}
+  while    {\p s -> Token While (alexPosnToPos p)}
+  else     {\p s -> Token Else (alexPosnToPos p)}
+  then     {\p s -> Token Then (alexPosnToPos p)}
+  if       {\p s -> Token If (alexPosnToPos p)}
+  array    {\p s -> Token Array (alexPosnToPos p)}
+  ":="     {\p s -> Token Assign (alexPosnToPos p)}
+  "&"      {\p s -> Token And (alexPosnToPos p)}
+  "|"      {\p s -> Token Or (alexPosnToPos p)}
+  ">="     {\p s -> Token Ge (alexPosnToPos p)}
+  ">"      {\p s -> Token Gt (alexPosnToPos p)}
+  "<="     {\p s -> Token Le (alexPosnToPos p)}
+  "<"      {\p s -> Token Lt (alexPosnToPos p)}
+  "!="     {\p s -> Token Neq (alexPosnToPos p)}
+  "="      {\p s -> Token Eq (alexPosnToPos p)}
+  "/"      {\p s -> Token Divide (alexPosnToPos p) }
+  "*"      {\p s -> Token Times (alexPosnToPos p)}
+  "-"      {\p s -> Token Minus (alexPosnToPos p)}
+  "+"      {\p s -> Token Plus (alexPosnToPos p)}
+  "."      {\p s -> Token Dot (alexPosnToPos p)}
+  "{"      {\p s -> Token Lbrace (alexPosnToPos p)}
+  "}"      {\p s -> Token Rbrace (alexPosnToPos p)}
+  "["      {\p s -> Token Lbrack (alexPosnToPos p)}
+  "]"      {\p s -> Token Rbrack (alexPosnToPos p)}
+  "("      {\p s -> Token Lparen (alexPosnToPos p)}
+  ")"      {\p s -> Token Rparen (alexPosnToPos p)}
+  ";"      {\p s -> Token Semicolon (alexPosnToPos p)}
+  ":"      {\p s -> Token Colon (alexPosnToPos p)}
+  ","      {\p s -> Token Comma (alexPosnToPos p)}
+  \" [^\"]* \" {\p s -> Token (String s) (alexPosnToPos p)}
 
-  $digit+				{ \p s -> Token (Int (read s)) p }
-  $alpha [$alpha $digit \_ \']*		{ \p s -> Token (Id s) p }
+  $digit+				{ \p s -> Token (Int (read s)) (alexPosnToPos p) }
+  $alpha [$alpha $digit \_ \']*		{ \p s -> Token (Id s) (alexPosnToPos p) }
 
 
 
@@ -109,6 +109,10 @@ data TokenType =
    Eof
    deriving (Eq,Show)
 
-data Token = Token TokenType AlexPosn deriving (Eq, Show)
+data Token = Token TokenType Pos deriving (Eq, Show)
+
+type Pos = (Int, Int)
+
+alexPosnToPos (AlexPn _ l c) = (l,c)
 
 }
