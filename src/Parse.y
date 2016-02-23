@@ -54,7 +54,7 @@ import AST
    ','      {L.Token L.Comma _}
    string   {L.Token (L.String _) _ }
    int      {L.Token (L.Int _) _}
-   id       {L.Token (L.Id _) _}
+   id       {L.Token (L.SymId _) _}
 
 
 %%
@@ -164,7 +164,7 @@ Product : ExpNoBinop {$1}
 {
 
 pos (L.Token _ p) = p
-getId (L.Token (L.Id i) _) = i
+getId (L.Token (L.SymId i) _) = i
 getInt (L.Token (L.Int i) _) = i
 getStr (L.Token (L.String s) _) = s
 

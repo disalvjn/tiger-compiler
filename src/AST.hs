@@ -2,8 +2,7 @@
 -- http://lambda-the-ultimate.org/node/4170#comment-63836
 module AST where
 import Lex(Pos)
-
-type Symbol = String
+import Symbol(Symbol)
 
 data VarF exp var = SimpleVar Symbol
                   | FieldVar var Symbol
@@ -57,7 +56,12 @@ newtype Dec e v d t f = Dec (d, DecF (Exp e v d t f) (Fundec e v d t f) (Ty t)) 
 newtype Ty t = Ty (t, TyF Field) deriving (Show, Eq)
 newtype Fundec e v d t f = Fundec (f, FundecF Field (Exp e v d t f)) deriving (Show, Eq)
 
-type PosAST = Exp Pos Pos Pos Pos Pos
+type PosExp = Exp Pos Pos Pos Pos Pos
+type PosVar = Var Pos Pos Pos Pos Pos
+type PosDec = Dec Pos Pos Pos Pos Pos
+type PosTy = Ty Pos
+type PosFundec = Fundec Pos Pos Pos Pos Pos
+
 
 {--
 updateExpsInVars :: (Exp1 var t -> Exp1 var exp) -> Var1 t var -> Var1 exp var

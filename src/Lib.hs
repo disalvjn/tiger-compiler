@@ -1,8 +1,8 @@
 import Parse(parse)
-import Lex(alexScanTokens)
+import Lex(tokenize)
 import AST
 import Control.Applicative
 
-p file = parse <$> alexScanTokens <$> readFile file
+p file = parse <$> snd . tokenize <$> readFile file
 
-p2 = parse . alexScanTokens
+p2 = parse . snd . tokenize

@@ -1,5 +1,7 @@
 {
-module Lex (Token(..), TokenType(..), Pos, alexScanTokens) where
+module Lex (Token(..), TokenType(..), Pos, tokenize) where
+import qualified Symbol as S
+import Control.Monad.State.Lazy
 }
 
 %wrapper "posn"
@@ -106,6 +108,7 @@ data TokenType =
    String String |
    Int Int       |
    Id String     |
+   SymId S.Symbol|
    Eof
    deriving (Eq,Show)
 
@@ -114,5 +117,14 @@ data Token = Token TokenType Pos deriving (Eq, Show)
 type Pos = (Int, Int)
 
 alexPosnToPos (AlexPn _ l c) = (l,c)
+
+tokenize :: String -> (S.SymbolTable, [Token])
+tokenize s = foldr (\ tok (symbolTable, rest) ->
+                   case tok of
+                     Token (Id str) pos -> let (sym, newTable) = runState (S.intern str) symbolTable
+                                           in (newTable, (Token (SymId sym) pos) : rest)
+                     _ -> (symbolTable, tok : rest))
+        (S.empty, [])
+        (alexScanTokens s)
 
 }
