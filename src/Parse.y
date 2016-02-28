@@ -73,7 +73,7 @@ ExpNoBinop : Var {let Var v = $1 in Exp (fst v, VarExp $ Var v)}
 | while Exp do Exp {Exp (pos $1, WhileExp $2 $4)}
 | for id assign Exp to Exp do Exp {Exp (pos $1, ForExp (getId $2) $4 $6 $8)}
 | break {Exp (pos $1, BreakExp)}
-| let DecList in Exp end {Exp (pos $1, LetExp $2 $4)}
+| let DecList in SeqExp end {Exp (pos $1, LetExp $2 (Exp (pos $3, SeqExp $4)))}
 | id '[' Exp ']' of Exp {Exp (pos $1, ArrayExp (getId $1) $3 $6)}
 
 IfExp : if Exp then Exp AltExp {Exp (pos $1, IfExp $2 $4 $5)}
@@ -96,7 +96,7 @@ RecordFieldsx : {- empty -} {[]}
 | id '=' Exp {[((getId $1), $3)]}
 | RecordFieldsx ',' id '=' Exp { ((getId $3), $5) : $1 }
 
-SeqExp : SeqExpx {reverse $1}
+SeqExp : SeqExpx {reverse $1} | {[]}
 SeqExpx : Exp { [$1] }
 | SeqExpx ';' Exp { $3 : $1 }
 
@@ -126,7 +126,7 @@ TypeDecListr : TypeDec {[$1]}
 TypeDec : type id '=' Ty {((getId $2), $4)}
 
 Ty : id {Ty (pos $1, NameTy (getId $1))}
-| '{' TyFields '}' {Ty (pos $1, RecordTy (reverse $2))}
+| '{' TyFields '}' {Ty (pos $1, RecordTy $2)}
 | array of id {Ty (pos $1, ArrayTy (getId $3))}
 
 TyFields : {[]}
@@ -173,4 +173,5 @@ parseError ((L.Token _ (l,c)) : _) =
   error $ "Parse error at line " ++ (show l) ++ " col " ++  (show c)
 
 parseError [] = error "Error (and no tokens remain)"
+
 }

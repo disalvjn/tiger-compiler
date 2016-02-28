@@ -1,10 +1,19 @@
 /* local types hide global */
 let
 	type a = int
+        var i : a := 5
 in
 	let
 		type a = string
+                var s : a := "hello"
 	in
-		0
-	end
+                s
+	end ;
+
+        let
+                var x : a := 5
+        in
+                x
+        end
+
 end

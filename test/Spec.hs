@@ -1,2 +1,4 @@
-main :: IO ()
-main = putStrLn "Test suite not yet implemented"
+import Test.HUnit
+import qualified Typecheck as Typecheck
+
+main = runTestTT Typecheck.tests

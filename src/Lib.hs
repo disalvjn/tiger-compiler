@@ -1,3 +1,4 @@
+module Lib where
 import Parse(parse)
 import Lex(tokenize)
 import qualified Symbol as S
@@ -8,6 +9,6 @@ import Debug.Trace(trace)
 
 typecheck str =
   let (symTab, tokens) = tokenize str
-      ast = parse tokens
+      ast = parse (trace (show tokens) tokens)
       (env, symTab') = ST.runState Semant.rootEnv symTab
-  in (trace (show symTab') Semant.typecheck ast env)
+  in (trace (show symTab') Semant.typecheck env ast)

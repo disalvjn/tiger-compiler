@@ -12,7 +12,8 @@ $alpha = [a-zA-Z]		-- alphabetic characters
 tokens :-
 
   $white+				;
-  "/*".*"*/"				;
+  "/*"     {\p s -> Token BeginComment (alexPosnToPos p)}
+  "*/"     {\p s -> Token EndComment (alexPosnToPos p)}
   type     {\p s -> Token Type (alexPosnToPos p) }
   var      {\p s -> Token Var (alexPosnToPos p)}
   function {\p s -> Token Function (alexPosnToPos p)}
@@ -37,7 +38,7 @@ tokens :-
   ">"      {\p s -> Token Gt (alexPosnToPos p)}
   "<="     {\p s -> Token Le (alexPosnToPos p)}
   "<"      {\p s -> Token Lt (alexPosnToPos p)}
-  "!="     {\p s -> Token Neq (alexPosnToPos p)}
+  "<>"     {\p s -> Token Neq (alexPosnToPos p)}
   "="      {\p s -> Token Eq (alexPosnToPos p)}
   "/"      {\p s -> Token Divide (alexPosnToPos p) }
   "*"      {\p s -> Token Times (alexPosnToPos p)}
@@ -57,6 +58,7 @@ tokens :-
 
   $digit+				{ \p s -> Token (Int (read s)) (alexPosnToPos p) }
   $alpha [$alpha $digit \_ \']*		{ \p s -> Token (Id s) (alexPosnToPos p) }
+  .        {\p s -> Token Unknown (alexPosnToPos p)}
 
 
 
@@ -109,6 +111,9 @@ data TokenType =
    Int Int       |
    Id String     |
    SymId S.Symbol|
+   BeginComment  |
+   EndComment    |
+   Unknown       |
    Eof
    deriving (Eq,Show)
 
@@ -118,6 +123,13 @@ type Pos = (Int, Int)
 
 alexPosnToPos (AlexPn _ l c) = (l,c)
 
+removeComments nest toks =
+               case toks of
+                 [] -> []
+                 ((Token BeginComment _) : ts) -> removeComments (nest + 1) ts
+                 ((Token EndComment _) : ts) -> removeComments (nest - 1) ts
+                 (t : ts) -> if nest > 0 then removeComments nest ts else t : removeComments nest ts
+
 tokenize :: String -> (S.SymbolTable, [Token])
 tokenize s = foldr (\ tok (symbolTable, rest) ->
                    case tok of
@@ -125,6 +137,6 @@ tokenize s = foldr (\ tok (symbolTable, rest) ->
                                            in (newTable, (Token (SymId sym) pos) : rest)
                      _ -> (symbolTable, tok : rest))
         (S.empty, [])
-        (alexScanTokens s)
+        (removeComments 0 $ alexScanTokens s)
 
 }
