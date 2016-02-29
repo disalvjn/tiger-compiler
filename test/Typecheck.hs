@@ -13,6 +13,7 @@ import Debug.Trace(trace)
 
 data ErrorType = UndefVar | UndefType | UndefField | CircularType | WrongType | ExpectedArray
                | ExpectedRecord | ExpectedFunction | NotARecord | WrongArity | MultipleDeclarations
+               | EveryoneKnowsFunctionsArentValues | UnconstrainedNil
                  deriving (Show, Eq)
 
 errorIsOfType t err =
@@ -28,6 +29,8 @@ errorIsOfType t err =
       Semant.NotARecord _ _ -> t == NotARecord
       Semant.WrongArity _ _ _ _ -> t == WrongArity
       Semant.MultipleDeclarations _ _ -> t == MultipleDeclarations
+      Semant.EveryoneKnowsFunctionsArentValues _ _ -> t == EveryoneKnowsFunctionsArentValues
+      Semant.UnconstrainedNil _ -> t == UnconstrainedNil
 
 printTypecheckedAST = False
 
@@ -61,7 +64,7 @@ isAnArrayOf elemType (Exp ((_, t), _)) =
 
 isARecordOf elemTypes (Exp ((_, t), _)) =
     case t of
-      Semant.RecordType fields _ -> and $ zipWith (==) (map snd fields) elemTypes
+      Semant.RecordType fields _ -> and $ zipWith Semant.isSubtypeOf elemTypes (map snd fields)
       _ -> False
 
 isARecursiveRecord (Exp ((_, t), _)) =
@@ -217,7 +220,7 @@ testExps =
                           <$> (typecheckTestCase "test44.tig")
          ,
            "test45.tig : only records can be nil" ~:
-           assertError WrongType <$> (typecheckTestCase "test45.tig")
+           assertError UnconstrainedNil <$> (typecheckTestCase "test45.tig")
          ,
            "test46.tig : records can be compared" ~:
            assertType [(isSimply Semant.IntType, "ints are bools")]

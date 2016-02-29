@@ -1,7 +1,8 @@
 -- This lets me write functions that return either Either TypeError a or ExceptT TypeError m
 {-# LANGUAGE FlexibleContexts #-}
 
-module Semant(typecheck, rootEnv, Type(..), TypeError(..)) where
+module Semant(typecheck, rootEnv, Type(..), TypeError(..),
+             isSubtypeOf) where
 import AST
 import Lex(Pos)
 import qualified Symbol as S
@@ -18,8 +19,7 @@ are not necessarily equal. Each expression like 'type intlist = {head : int, tai
 creates a new, unique type. Unique IDs (ints) are used to identify types. Also, NameTypes
 (like 'type count = int') store the ID of the type to which they refer.
 
-   Types are equal if their IDs are equal, with the exception that any record type
-'equals' nil, since Tiger allows any instance of a record type to be nil.
+   Types are equal if their IDs are equal. Nil is a subtype of every record type.
 
 --}
 
@@ -35,9 +35,13 @@ data Type = IntType
             deriving (Show)
 
 instance Eq Type where
-    RecordType _ _ == NilType = True
-    NilType == RecordType _ _ = True
     t1 == t2 = getTypeId t1 == getTypeId t2
+
+isSubtypeOf NilType (RecordType _ _) = True
+isSubtypeOf t1 t2 = t1 == t2
+
+-- this is NOT transitive
+isComparableTo t1 t2 = t1 `isSubtypeOf` t2 || t2 `isSubtypeOf` t1
 
 data TypeError = UndefVar S.Symbol Pos
                | UndefType S.Symbol Pos
@@ -51,6 +55,7 @@ data TypeError = UndefVar S.Symbol Pos
                | NotARecord S.Symbol Pos
                | MultipleDeclarations S.Symbol Pos
                | EveryoneKnowsFunctionsArentValues S.Symbol Pos
+               | UnconstrainedNil Pos
                  deriving (Eq,Show)
 
 intTypeId = TypeId 0
@@ -255,14 +260,14 @@ type TypedFundec = Fundec (Pos,Type) (Pos,Type) Pos (Pos,Type) Pos
 safeLast :: [a] -> Maybe a
 safeLast list = if null list then Nothing else Just $ last list
 
-mustBe :: (MonadError TypeError m) => (Type, Pos) -> Type -> m Type
-mustBe (actual,pos) expected =
-    if expected == actual
-    then return actual
+mustBeA :: (MonadError TypeError m) => (Type, Pos) -> Type -> m Type
+mustBeA (actual,pos) expected =
+    if actual `isSubtypeOf` expected
+    then return expected
     else throwError $ WrongType expected actual pos
 
 asMust :: (MonadError TypeError m) => m Type -> (Type, Pos) -> m Type
-asMust expected actual = expected >>= mustBe actual
+asMust expected actual = expected >>= mustBeA actual
 
 -- a little syntactic sugar
 typedExp pos typ node = return $ Exp ((pos, typ), node)
@@ -292,11 +297,11 @@ annotateExp env (Exp (pos, exp)) =
                if (oper == EqOp) || (oper == NeqOp)
                then do
                  -- = and <> work on any identical types
-                 (rType,rp) `mustBe` lType
+                 unless (rType `isComparableTo` lType) (throwError $ WrongType rType lType rp)
                  typedExp pos IntType $ OpExp annL oper annR
                else do
                  -- all other binops work only on integers
-                 (lType, lp) `mustBe` IntType `asMust` (rType, rp)
+                 (lType, lp) `mustBeA` IntType `asMust` (rType, rp)
                  typedExp pos IntType $ OpExp annL oper annR
 
       -- When calling f(a1, ..., an), where f has formal parameters p1, ..., pk :
@@ -316,7 +321,7 @@ annotateExp env (Exp (pos, exp)) =
                             annArgs <- mapM (annotateExp env) args
                             -- ensure the arg types match the declared param types
                             zipWithM_ (\ (Exp ((pos, typ), _)) expectedType ->
-                                       (typ, pos) `mustBe` expectedType) annArgs paramTypes
+                                       (typ, pos) `mustBeA` expectedType) annArgs paramTypes
                             -- the type of a function call is the fn's return type
                             typedExp pos retType $ CallExp f annArgs
 
@@ -338,7 +343,7 @@ annotateExp env (Exp (pos, exp)) =
                                                        fieldTypes
                                  -- Ensure the field init values' types match the declared types.
                                  zipWithM_ (\ (Exp ((pos, actType), _)) expected ->
-                                            (actType,pos) `mustBe` expected)
+                                            (actType,pos) `mustBeA` expected)
                                            annFieldVals resolvedFieldTypes
                                  -- Also check the names?
                                  -- Also check arity?
@@ -356,7 +361,7 @@ annotateExp env (Exp (pos, exp)) =
       AssignExp lvar rval -> do
                annExp@(Exp ((epos, expType), _)) <- annotateExp env rval
                annVar@(Var ((vpos, varType), _)) <- annotateVar env lvar
-               (expType, epos) `mustBe` varType
+               (expType, epos) `mustBeA` varType
                typedExp pos UnitType $ AssignExp annVar annExp
 
       -- for 'if p then c else a' : type(c) = type(a). For 'if p then c', type(c) = Unit.
@@ -364,22 +369,22 @@ annotateExp env (Exp (pos, exp)) =
       IfExp pred conseq alt -> do
                annPred@(Exp ((ppos, predType), _)) <- annotateExp env pred
                annConseq@(Exp ((cpos, conType), _)) <- annotateExp env conseq
-               (predType, ppos) `mustBe` IntType
+               (predType, ppos) `mustBeA` IntType
                case alt of
                  Just a -> do
                           annAlt@(Exp ((apos, aType), _)) <- annotateExp env a
-                          (conType, cpos) `mustBe` aType
+                          (conType, cpos) `mustBeA` aType
                           typedExp pos aType $ IfExp annPred annConseq (Just annAlt)
                  Nothing -> do
-                          (conType, cpos) `mustBe` UnitType
+                          (conType, cpos) `mustBeA` UnitType
                           typedExp pos UnitType $ IfExp annPred annConseq Nothing
 
       -- Body has type of unit. Test has type of int. Whole exp has type of unit.
       WhileExp test body -> do
                annTest@(Exp ((tpos, tType), _)) <- annotateExp env test
                annBody@(Exp ((bpos, bType), _)) <- annotateExp env body
-               (tType, tpos) `mustBe` IntType
-               (bType, bpos) `mustBe` UnitType
+               (tType, tpos) `mustBeA` IntType
+               (bType, bpos) `mustBeA` UnitType
                typedExp pos UnitType $ WhileExp annTest annBody
 
       -- Bind sym to an int. Lo and Hi must be ints. Body must be of unit type.
@@ -389,8 +394,8 @@ annotateExp env (Exp (pos, exp)) =
             annLo@(Exp ((lpos, lType), _)) <- annotateExp env' lo
             annHi@(Exp ((hpos, hType), _)) <- annotateExp env' hi
             annBody@(Exp ((bpos, bType), _)) <- annotateExp env' body
-            (lType, lpos) `mustBe` IntType `asMust` (hType, hpos)
-            (bType, bpos) `mustBe` UnitType
+            (lType, lpos) `mustBeA` IntType `asMust` (hType, hpos)
+            (bType, bpos) `mustBeA` UnitType
             typedExp pos UnitType $ ForExp sym annLo annHi annBody
 
       BreakExp  -> typedExp pos UnitType BreakExp
@@ -412,11 +417,11 @@ annotateExp env (Exp (pos, exp)) =
                annSize@(Exp ((spos, sType), _)) <- annotateExp env size
                annInit@(Exp ((ipos, iType), _)) <- annotateExp env init
                arrayType <- lookupType (typ, pos) env
-               (sType, spos) `mustBe` IntType
+               (sType, spos) `mustBeA` IntType
                case arrayType of
                  ArrayType elemType _ -> do
                                   realType <- resolveNameType (elemType, pos) env
-                                  (iType, ipos) `mustBe` realType
+                                  (iType, ipos) `mustBeA` realType
                                   typedExp pos arrayType $ ArrayExp typ annSize annInit
                  other -> throwError $ ExpectedArray arrayType pos
 
@@ -446,7 +451,7 @@ annotateVar env (Var (pos, var)) =
       SubscriptVar v exp -> do
                annExp@(Exp ((expPos, expType), _)) <- annotateExp env exp
                annVar@(Var ((_, varType), _)) <- annotateVar env v
-               (expType, expPos) `mustBe` IntType
+               (expType, expPos) `mustBeA` IntType
                case varType of
                  ArrayType elemType _ -> typedVar pos elemType $ SubscriptVar annVar annExp
                  _ -> throwError $ ExpectedArray varType pos
@@ -489,7 +494,7 @@ annotateDec (Dec (pos, dec)) =
                -- Verify that the type of each function's body is equal to the function's
                -- declared return type.
                zipWithM_  (\(_, _, retType) (Exp ((pos, typ), _)) ->
-                           (typ, pos) `mustBe` retType) funcTypes annBodies
+                           (typ, pos) `mustBeA` retType) funcTypes annBodies
                return $ Dec (pos, FunDec annFundecs)
 
       -- For 'var x : t := y', t = type(y), and the environment is extended
@@ -498,11 +503,12 @@ annotateDec (Dec (pos, dec)) =
           do env <- lift ST.get
              annInit@(Exp ((ipos, iType), _)) <- annotateExp env init
              let makeResult varType = do
-                   (iType, ipos) `mustBe` varType
+                   (iType, ipos) `mustBeA` varType
                    lift $ bindVar name varType
                    return $ Dec (pos, VarDec name typ annInit)
              case typ of
-               Nothing -> makeResult iType
+               Nothing -> do when (iType == NilType) (throwError $ UnconstrainedNil ipos)
+                             makeResult iType
                Just expectedType -> lookupType (expectedType, pos) env >>= makeResult
 
       -- The strategy: for each type being declared, create a dummy name type that
