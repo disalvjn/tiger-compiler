@@ -1,7 +1,7 @@
 -- This lets me write functions that return either Either TypeError a or ExceptT TypeError m
 {-# LANGUAGE FlexibleContexts #-}
 
-module Semant(typecheck, rootEnv, Type(..), TypeError(..),
+module Semant(analyze, rootEnv, Type(..), TypeError(..),
              isSubtypeOf) where
 import AST
 import Lex(Pos)
@@ -56,6 +56,7 @@ data TypeError = UndefVar S.Symbol Pos
                | MultipleDeclarations S.Symbol Pos
                | EveryoneKnowsFunctionsArentValues S.Symbol Pos
                | UnconstrainedNil Pos
+               | BreakNotInForWhile Pos
                  deriving (Eq,Show)
 
 intTypeId = TypeId 0
@@ -273,8 +274,8 @@ asMust expected actual = expected >>= mustBeA actual
 typedExp pos typ node = return $ Exp ((pos, typ), node)
 typedVar pos typ node = return $ Var ((pos, typ), node)
 
-typecheck :: Environment -> PosExp -> Either TypeError TypedExp
-typecheck = annotateExp
+analyze :: Environment -> PosExp -> Either TypeError TypedExp
+analyze env exp = checkBreakPlacement exp >>= annotateExp env
 
 annotateExp ::  (MonadError TypeError m) => Environment -> PosExp -> m TypedExp
 annotateExp env (Exp (pos, exp)) =
@@ -604,3 +605,22 @@ annotateTy (Ty (pos, ty)) =
             actualTypes <- mapM (\t -> lookupFirstType (t, pos) env) fieldTypes
             recType <- lift $ createRecordType fieldNames actualTypes
             return $ (Ty ((pos, recType), RecordTy fields))
+
+checkBreakPlacement :: PosExp -> Either TypeError PosExp
+checkBreakPlacement ast =
+    go 0 ast
+        where go nest ast@(Exp (pos, exp)) =
+                  case exp of
+                    BreakExp -> if nest > 0
+                                then Right $ Exp (pos, BreakExp)
+                                else Left $ BreakNotInForWhile pos
+                    ForExp v lo hi body -> do
+                             lo' <- go nest lo
+                             hi' <- go nest hi
+                             body' <- go (nest + 1) body
+                             return $ Exp (pos, ForExp v lo' hi' body')
+                    WhileExp test body -> do
+                             test' <- go nest test
+                             body' <- go (nest + 1) body
+                             return $ Exp (pos, WhileExp test' body')
+                    other -> mapMExp (go nest) ast

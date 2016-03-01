@@ -11,4 +11,4 @@ typecheck str =
   let (symTab, tokens) = tokenize str
       ast = parse (trace (show tokens) tokens)
       (env, symTab') = ST.runState Semant.rootEnv symTab
-  in (trace (show symTab') Semant.typecheck env ast)
+  in (trace (show symTab') Semant.analyze env ast)

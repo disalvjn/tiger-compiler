@@ -13,7 +13,7 @@ import Debug.Trace(trace)
 
 data ErrorType = UndefVar | UndefType | UndefField | CircularType | WrongType | ExpectedArray
                | ExpectedRecord | ExpectedFunction | NotARecord | WrongArity | MultipleDeclarations
-               | EveryoneKnowsFunctionsArentValues | UnconstrainedNil
+               | EveryoneKnowsFunctionsArentValues | UnconstrainedNil | BreakNotInForWhile
                  deriving (Show, Eq)
 
 errorIsOfType t err =
@@ -31,6 +31,7 @@ errorIsOfType t err =
       Semant.MultipleDeclarations _ _ -> t == MultipleDeclarations
       Semant.EveryoneKnowsFunctionsArentValues _ _ -> t == EveryoneKnowsFunctionsArentValues
       Semant.UnconstrainedNil _ -> t == UnconstrainedNil
+      Semant.BreakNotInForWhile _ -> t == BreakNotInForWhile
 
 printTypecheckedAST = False
 
@@ -38,7 +39,7 @@ typecheck str =
   let (symTab, tokens) = tokenize str
       ast = parse tokens
       (env, symTab') = ST.runState Semant.rootEnv symTab
-      result = Semant.typecheck env ast
+      result = Semant.analyze env ast
   in if printTypecheckedAST
      then (trace (show result) result)
      else result
@@ -244,6 +245,15 @@ testVars =
           assertError ExpectedRecord <$> (typecheckTestCase "test25.tig")
          ]
 
+testBreakPlacement =
+    test ["test51.tig : misplaced break " ~:
+          assertError BreakNotInForWhile <$> (typecheckTestCase "test51.tig")
+         ,
+          "test52.tig : properly placed break " ~:
+          assertType [(isSimply Semant.IntType, "everything okay")]
+                         <$> (typecheckTestCase "test52.tig")
+         ]
 
 
-tests = test [testTypeDecs, testExps, testVars]
+
+tests = test [testTypeDecs, testExps, testVars, testBreakPlacement]

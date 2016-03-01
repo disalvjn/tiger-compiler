@@ -100,7 +100,7 @@ SeqExp : SeqExpx {reverse $1} | {[]}
 SeqExpx : Exp { [$1] }
 | SeqExpx ';' Exp { $3 : $1 }
 
-DecList : DecListr {reverse $1}
+DecList :  {[]} | DecListr {reverse $1}
 DecListr : Dec {[$1]}
 | DecListr Dec {$2 : $1}
 
