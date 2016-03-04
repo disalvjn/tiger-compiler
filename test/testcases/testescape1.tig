@@ -1,0 +1,14 @@
+let var i := 1 /* escapes because of addI */
+    var j := 2 /* escapes because of body's addJ */
+    var k := 3 /* doesn't escape */
+    function addI(x : int) : int = x+i /* x doesn't escape */
+    function adder(x : int) : int = /* x escapes because of go */
+             let function go(y : int) : int = x+y /* y doesn't escape */
+             in go(6)
+             end
+in
+    addI(5);
+    let function addJ(x : int) : int = x+j /* x doesn't escape */
+    in addJ(5)
+    end
+end

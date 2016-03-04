@@ -71,7 +71,7 @@ ExpNoBinop : Var {let Var v = $1 in Exp (fst v, VarExp $ Var v)}
 | Var assign Exp {Exp (pos $2, AssignExp $1 $3)}
 | IfExp {$1}
 | while Exp do Exp {Exp (pos $1, WhileExp $2 $4)}
-| for id assign Exp to Exp do Exp {Exp (pos $1, ForExp (getId $2) $4 $6 $8)}
+| for id assign Exp to Exp do Exp {Exp (pos $1, ForExp (getId $2) $4 $6 $8 True)}
 | break {Exp (pos $1, BreakExp)}
 | let DecList in SeqExp end {Exp (pos $1, LetExp $2 (Exp (pos $3, SeqExp $4)))}
 | id '[' Exp ']' of Exp {Exp (pos $1, ArrayExp (getId $1) $3 $6)}
@@ -115,8 +115,8 @@ FunDecList : FunDecListr {reverse $1}
 FunDecListr : FunDec {[$1]}
 | FunDecListr FunDec {$2 : $1}
 
-VarDec : var id assign Exp {Dec (pos $1, VarDec (getId $2) Nothing $4)}
-| var id ':' id assign Exp {Dec (pos $1, VarDec (getId $2) (Just (getId $4)) $6)}
+VarDec : var id assign Exp {Dec (pos $1, VarDec (getId $2) Nothing $4 True)}
+| var id ':' id assign Exp {Dec (pos $1, VarDec (getId $2) (Just (getId $4)) $6 True)}
 
 TypeDecList : TypeDecListr {reverse $1}
 
@@ -134,7 +134,7 @@ TyFields : {[]}
 
 SomeTyFields : SomeTyFields ',' TyField {$3 : $1}
 | TyField {[$1]}
-TyField : id ':' id {Field (getId $1) (getId $3) }
+TyField : id ':' id {Field (getId $1) (getId $3) True}
 
 OpExp : Equality {$1}
 | OpExp and Equality {Exp (pos $2, OpExp $1 AndOp $3)}

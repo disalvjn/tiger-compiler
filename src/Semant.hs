@@ -2,7 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Semant(analyze, rootEnv, Type(..), TypeError(..),
-             isSubtypeOf) where
+             isSubtypeOf, TypedExp, TypedVar, TypedDec) where
 import AST
 import Lex(Pos)
 import qualified Symbol as S
@@ -389,7 +389,7 @@ annotateExp env (Exp (pos, exp)) =
                typedExp pos UnitType $ WhileExp annTest annBody
 
       -- Bind sym to an int. Lo and Hi must be ints. Body must be of unit type.
-      ForExp sym lo hi body ->
+      ForExp sym lo hi body esc ->
           let (_, env') = ST.runState (bindVar sym IntType) env
           in do
             annLo@(Exp ((lpos, lType), _)) <- annotateExp env' lo
@@ -397,7 +397,7 @@ annotateExp env (Exp (pos, exp)) =
             annBody@(Exp ((bpos, bType), _)) <- annotateExp env' body
             (lType, lpos) `mustBeA` IntType `asMust` (hType, hpos)
             (bType, bpos) `mustBeA` UnitType
-            typedExp pos UnitType $ ForExp sym annLo annHi annBody
+            typedExp pos UnitType $ ForExp sym annLo annHi annBody esc
 
       BreakExp  -> typedExp pos UnitType BreakExp
 
@@ -500,13 +500,13 @@ annotateDec (Dec (pos, dec)) =
 
       -- For 'var x : t := y', t = type(y), and the environment is extended
       -- with x -> t. For 'var x := y', x -> type(y).
-      VarDec name typ init ->
+      VarDec name typ init esc ->
           do env <- lift ST.get
              annInit@(Exp ((ipos, iType), _)) <- annotateExp env init
              let makeResult varType = do
                    (iType, ipos) `mustBeA` varType
                    lift $ bindVar name varType
-                   return $ Dec (pos, VarDec name typ annInit)
+                   return $ Dec (pos, VarDec name typ annInit esc)
              case typ of
                Nothing -> do when (iType == NilType) (throwError $ UnconstrainedNil ipos)
                              makeResult iType
@@ -558,7 +558,7 @@ annotateDec (Dec (pos, dec)) =
 funcTypeNamePair :: MonadError TypeError m =>
      Environment -> PosFundec -> m (S.Symbol, [Type], Type)
 funcTypeNamePair env (Fundec (pos, FundecF name params result _)) = do
-  paramTypes <- mapM (\(Field fname ftype) -> (lookupType (ftype, pos) env))  params
+  paramTypes <- mapM (\field -> (lookupType (fieldTyp field, pos) env))  params
   retType <- maybe (return UnitType) (\typName -> lookupType (typName, pos) env) result
   return $ (name, paramTypes, retType)
 
@@ -614,11 +614,11 @@ checkBreakPlacement ast =
                     BreakExp -> if nest > 0
                                 then Right $ Exp (pos, BreakExp)
                                 else Left $ BreakNotInForWhile pos
-                    ForExp v lo hi body -> do
+                    ForExp v lo hi body esc -> do
                              lo' <- go nest lo
                              hi' <- go nest hi
                              body' <- go (nest + 1) body
-                             return $ Exp (pos, ForExp v lo' hi' body')
+                             return $ Exp (pos, ForExp v lo' hi' body' esc)
                     WhileExp test body -> do
                              test' <- go nest test
                              body' <- go (nest + 1) body
