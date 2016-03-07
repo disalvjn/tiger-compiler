@@ -1,0 +1,8 @@
+let
+        var i := 1
+        function g(x : int) : int = i+1+x
+        var i := 2
+        function g(x : int) : int = i+1+x
+in
+        g(i)
+end

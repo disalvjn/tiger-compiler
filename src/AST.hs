@@ -3,7 +3,7 @@
 module AST(VarF(..), ExpF(..), DecF(..), FundecF(..), TyF(..), Oper(..), Field(..),
            Exp(..), Var(..), Dec(..), Fundec(..), Ty(..),
            PosExp, PosVar, PosTy, PosDec, PosFundec,
-           mapExp, mapMExp, transformExp) where
+           mapExp, mapMExp, transformExp, transformMExp) where
 import Lex(Pos)
 import Symbol(Symbol)
 import qualified Data.Traversable as T
@@ -111,6 +111,7 @@ transformExpF expf varf decf combine nil exp =
               in (exps, joinedVals)
 
 package f x = (f x, ())
+packageM f x = f x >>= return . (\y -> (y, ()))
 discard _ _ = ()
 
 mapExpF expf varf decf exp =
@@ -148,74 +149,92 @@ mapDecF expf fundecf tyf dec =
 instance Functor FundecF where
     fmap expf (FundecF name params result body) = FundecF name params result (expf body)
 
-mapMExpF :: Monad m => (exp -> m exp') -> (var -> m var') -> (dec -> m dec')
-         -> ExpF exp var dec -> m (ExpF exp' var' dec')
+transformMExpF :: (Monad m) => (Functor m) =>
+                 (exp -> m (exp', a)) -> (var -> m (var', a)) -> (dec -> m (dec', a))
+                 -> (a -> b -> b) -> b -> ExpF exp var dec -> m (ExpF exp' var' dec', b)
+transformMExpF expf varf decf combine nil exp =
+  case exp of
+    VarExp var             -> do (var', x) <- varf var
+                                 return (VarExp var', x `combine` nil)
+    NilExp                 -> return (NilExp, nil)
+    IntExp i               -> return (IntExp i, nil)
+    StringExp s            -> return (StringExp s, nil)
+    CallExp f args         -> do (args', x) <- fmap unpackage $ mapM expf args
+                                 return (CallExp f args', x)
+    OpExp left op right    -> do (left', l) <- expf left
+                                 (right', r) <- expf right
+                                 return (OpExp left' op right', l `combine` (r `combine` nil))
+    RecordExp fields typ   -> do let (fieldNames, fieldExps) = unzip fields
+                                 (newExps, x) <- fmap unpackage $ mapM expf fieldExps
+                                 return (RecordExp (zip fieldNames newExps) typ, x)
+    SeqExp exps            -> do (exps', x) <- fmap unpackage $ mapM expf exps
+                                 return (SeqExp exps', x)
+    AssignExp lval rval    -> do (lval', x) <- varf lval
+                                 (rval', y) <- expf rval
+                                 return (AssignExp lval' rval', x `combine` (y `combine` nil))
+    IfExp pred conseq alt  -> do (pred', x) <- expf pred
+                                 (conseq', y) <- expf conseq
+                                 (alt', z) <- case alt of
+                                                Nothing -> return (Nothing, nil)
+                                                Just a -> do
+                                                         (a', b) <- expf a
+                                                         return (Just a', b `combine` nil)
+                                 return (IfExp pred' conseq' alt',
+                                         x `combine` (y `combine` z))
+    WhileExp test body     -> do (test', x) <- expf test
+                                 (body', y) <- expf body
+                                 return (WhileExp test' body', x `combine` (y `combine` nil))
+    ForExp i lo hi body e  -> do (lo', x) <- expf lo
+                                 (hi', y) <- expf hi
+                                 (body', z) <- expf body
+                                 return (ForExp i lo' hi' body' e,
+                                         x `combine` (y `combine` (z `combine` nil)))
+    BreakExp               -> return (BreakExp, nil)
+    LetExp decs body       -> do (decs', xs) <- fmap unzip $ mapM decf decs
+                                 (body', y) <- expf body
+                                 return (LetExp decs' body', foldr combine (y `combine` nil) xs )
+    ArrayExp typ size init -> do (size', x) <- expf size
+                                 (init', y) <- expf init
+                                 return (ArrayExp typ size' init', x `combine` (y `combine` nil))
+    where unpackage expsAndVals =
+              let (exps, vals) = unzip expsAndVals
+                  joinedVals = foldr combine nil vals
+              in (exps, joinedVals)
+
 mapMExpF expf varf decf exp =
-    case exp of
-      VarExp v -> (varf v) >>= return . VarExp
-      NilExp -> return NilExp
-      IntExp i -> return $ IntExp i
-      StringExp s -> return $ StringExp s
-      CallExp f args -> mapM expf args >>= return . (CallExp f)
-      OpExp left op right -> do
-               left' <- expf left
-               right' <- expf right
-               return $ OpExp left' op right'
-      RecordExp fields typ -> do
-               let (names, inits) = unzip fields
-               inits' <- mapM expf inits
-               return $ RecordExp (zip names inits') typ
-      SeqExp exps -> mapM expf exps >>= return . SeqExp
-      AssignExp lval rval -> do
-               lval' <- varf lval
-               rval' <- expf rval
-               return $ AssignExp lval' rval'
-      IfExp pred conseq alt -> do
-               pred' <- expf pred
-               conseq' <- expf conseq
-               alt' <- T.mapM expf alt
-               return $ IfExp pred' conseq' alt'
-      WhileExp test body -> do
-               test' <- expf test
-               body' <- expf body
-               return $ WhileExp test' body'
-      ForExp i lo hi body esc -> do
-               lo' <- expf lo
-               hi' <- expf hi
-               body' <- expf body
-               return $ ForExp i lo' hi' body' esc
-      BreakExp -> return BreakExp
-      LetExp decs body -> do
-               decs' <- mapM decf decs
-               body' <- expf body
-               return $ LetExp decs' body'
-      ArrayExp typ size init -> do
-               size' <- expf size
-               init' <- expf init
-               return $ ArrayExp typ size' init'
+    fmap fst $ transformMExpF (packageM expf) (packageM varf) (packageM decf) discard () exp
 
-mapMVarF :: (Monad m) => (exp -> m exp') -> (var -> m var') -> VarF exp var -> m (VarF exp' var')
-mapMVarF expf varf var =
+transformMVarF :: (Monad m) =>
+                 (exp -> m (exp', a)) -> (var -> m (var', a)) ->
+                 (a -> b -> b) -> b -> VarF exp var -> m (VarF exp' var', b)
+transformMVarF expf varf combine nil var =
     case var of
-      SimpleVar s -> return $ SimpleVar s
-      FieldVar v s -> do
-               v' <- varf v
-               return $ FieldVar v' s
-      SubscriptVar v e -> do
-               v' <- varf v
-               e' <- expf e
-               return $ SubscriptVar v' e'
+      SimpleVar s      -> return (SimpleVar s, nil)
+      FieldVar v s     -> do (v', x) <- varf v
+                             return (FieldVar v' s, x `combine` nil)
+      SubscriptVar v e -> do (v', x) <- varf v
+                             (e', y) <- expf e
+                             return (SubscriptVar v' e', x `combine` (y `combine` nil))
 
-mapMDecF :: (Monad m) => (exp -> m exp') -> (fundec -> m fundec') -> (ty -> m ty')
-         -> DecF exp fundec ty -> m (DecF exp' fundec' ty')
-mapMDecF expf fundecf tyf dec =
+mapMVarF expf varf var =
+    fmap fst $ transformMVarF (packageM expf) (packageM varf) discard () var
+
+transformMDecF :: (Monad m) => (Functor m) =>
+                  (exp -> m (exp', a)) -> (fundec -> m (fundec', a)) -> (ty -> m (ty', a))
+              -> (a -> b -> b) -> b -> DecF exp fundec ty -> m (DecF exp' fundec' ty', b)
+transformMDecF expf fundecf tyf combine nil dec =
     case dec of
-      FunDec decs -> mapM fundecf decs >>= return . FunDec
-      VarDec name typ init esc -> expf init >>= return . (\init -> VarDec name typ init esc)
-      TypeDec decs -> do
-               let (names, types) = unzip decs
-               types' <- mapM tyf types
-               return $ TypeDec (zip names types')
+      FunDec decs            -> do (decs', xs) <- fmap unzip $ mapM fundecf decs
+                                   return (FunDec decs', foldr combine nil xs)
+      VarDec name typ init e -> do (init', x) <- expf init
+                                   return (VarDec name typ init' e, x `combine` nil)
+      TypeDec decs           -> do let (tyNames, tyDecs) = unzip decs
+                                   (tyDecs', xs) <- fmap unzip $ mapM tyf tyDecs
+                                   return (TypeDec (zip tyNames tyDecs'), foldr combine nil xs)
+
+mapMDecF expf fundecf tyf dec =
+    fmap fst $ transformMDecF (packageM expf) (packageM fundecf) (packageM tyf) discard () dec
+
 
 mapMFundecF :: (Monad m) => (exp -> m exp') -> FundecF exp -> m (FundecF exp')
 mapMFundecF expf (FundecF name params result body) =
@@ -243,6 +262,26 @@ transformExpsInFundec f combine nil (Fundec (x, FundecF name params result body)
     let (body', res) = f body
     in (Fundec (x, FundecF name params result body'), res `combine` nil)
 
+transformMExp f combine nil (Exp (x, e)) =
+    do (e', res) <- transformMExpF f (transformMExpsInVar f combine nil)
+                    (transformMExpsInDec f combine nil)
+                    combine
+                    nil
+                    e
+       return (Exp (x, e'), res)
+
+transformMExpsInVar f combine nil (Var (x, v)) =
+    do (v', res) <- transformMVarF f (transformMExpsInVar f combine nil) combine nil v
+       return (Var (x, v'), res)
+
+transformMExpsInDec f combine nil (Dec (x, dec)) =
+    do (dec', res) <- transformMDecF f (transformMExpsInFundec f combine nil)
+                      (\x -> return (x, nil)) combine nil dec
+       return (Dec (x, dec'), res)
+
+transformMExpsInFundec f combine nil (Fundec (x, FundecF name params result body)) =
+    do (body', res) <- f body
+       return (Fundec (x, FundecF name params result body'), res `combine` nil)
 
 
 mapExp f (Exp (x, e)) = Exp (x, mapExpF f (mapToExpsInVar f) (mapToExpsInDec f) e)
@@ -262,13 +301,14 @@ mapToVarsInExp f (Exp (x, e)) = Exp (x, mapExpF (mapToVarsInExp f) f
                                           (mapToExpsInDec $ mapToVarsInExp f) e)
 
 mapMExp f (Exp (x, e)) = mapMExpF f (mapMToExpsInVar f) (mapMToExpsInDec f) e
-                         >>= return . Exp . (,) x
-
-mapMToExpsInVar f (Var (x, v)) = mapMVarF f (mapMToExpsInVar f) v >>= return . Var . (,) x
-mapMToExpsInDec f (Dec (x, d)) = mapMDecF f (mapMToExpsInFundec f) return d
-                                 >>= return . Dec . (,) x
-mapMToExpsInFundec f (Fundec (x, d)) = mapMFundecF f d >>= return . Fundec . (,) x
-
+                         >>= return . (\y -> Exp (x, y))
+mapMToExpsInVar f (Var (x, v)) = mapMVarF f (mapMToExpsInVar f) v
+                                 >>= return . (\y -> Var (x, y))
+mapMToExpsInDec f (Dec (x, dec)) = mapMDecF f (mapMToExpsInFundec f) return dec
+                                    >>= return . (\y -> Dec (x, y))
+mapMToExpsInFundec f (Fundec (x, FundecF name params result body)) =
+    do body' <- f body
+       return $ Fundec (x, FundecF name params result body')
 
 type PosExp = Exp Pos Pos Pos Pos Pos
 type PosVar = Var Pos Pos Pos Pos Pos
