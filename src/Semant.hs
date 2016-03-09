@@ -389,7 +389,7 @@ annotateExp env (Exp (pos, exp)) =
                typedExp pos UnitType $ WhileExp annTest annBody
 
       -- Bind sym to an int. Lo and Hi must be ints. Body must be of unit type.
-      ForExp sym lo hi body esc ->
+      ForExp sym lo hi body ->
           let (_, env') = ST.runState (bindVar sym IntType) env
           in do
             annLo@(Exp ((lpos, lType), _)) <- annotateExp env' lo
@@ -397,7 +397,7 @@ annotateExp env (Exp (pos, exp)) =
             annBody@(Exp ((bpos, bType), _)) <- annotateExp env' body
             (lType, lpos) `mustBeA` IntType `asMust` (hType, hpos)
             (bType, bpos) `mustBeA` UnitType
-            typedExp pos UnitType $ ForExp sym annLo annHi annBody esc
+            typedExp pos UnitType $ ForExp sym annLo annHi annBody
 
       BreakExp  -> typedExp pos UnitType BreakExp
 
@@ -500,13 +500,13 @@ annotateDec (Dec (pos, dec)) =
 
       -- For 'var x : t := y', t = type(y), and the environment is extended
       -- with x -> t. For 'var x := y', x -> type(y).
-      VarDec name typ init esc ->
+      VarDec name typ init ->
           do env <- lift ST.get
              annInit@(Exp ((ipos, iType), _)) <- annotateExp env init
              let makeResult varType = do
                    (iType, ipos) `mustBeA` varType
                    lift $ bindVar name varType
-                   return $ Dec (pos, VarDec name typ annInit esc)
+                   return $ Dec (pos, VarDec name typ annInit)
              case typ of
                Nothing -> do when (iType == NilType) (throwError $ UnconstrainedNil ipos)
                              makeResult iType
@@ -614,11 +614,11 @@ checkBreakPlacement ast =
                     BreakExp -> if nest > 0
                                 then Right $ Exp (pos, BreakExp)
                                 else Left $ BreakNotInForWhile pos
-                    ForExp v lo hi body esc -> do
+                    ForExp v lo hi body -> do
                              lo' <- go nest lo
                              hi' <- go nest hi
                              body' <- go (nest + 1) body
-                             return $ Exp (pos, ForExp v lo' hi' body' esc)
+                             return $ Exp (pos, ForExp v lo' hi' body')
                     WhileExp test body -> do
                              test' <- go nest test
                              body' <- go (nest + 1) body
