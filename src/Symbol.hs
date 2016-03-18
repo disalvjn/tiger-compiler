@@ -1,4 +1,5 @@
-module Symbol(empty, name, intern, genSym, genTemp, genLabel, Symbol, Temp, Label, SymbolTable) where
+module Symbol(empty, name, intern, genSym, genTemp, genLabel,
+              Symbol, Temp, Label, SymbolTable) where
 import qualified Data.Map as M
 import Control.Monad.State.Lazy
 
