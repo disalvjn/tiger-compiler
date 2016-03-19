@@ -98,23 +98,19 @@ makeIdsUniqueInFundecs replacements fundecs = do
                               name' <- S.genSym
                               return (name, name')) fundecs
   let replaceNames = M.union (M.fromList nameReplacements) replacements
-  (rfundecs', replacements') <- ST.foldM (\(decs, replacements)
-                                      (Fundec (x, FundecF name params result body)) -> do
-                                       let (Just name') = M.lookup name replacements
-                                       params' <- mapM (\(Field name typ) -> do
-                                                          name' <- S.genSym
-                                                          return $ Field name' typ)
-                                                  params
-                                       let paramReps = M.fromList $ zip (map fieldName params)
-                                                                        (map fieldName params')
-                                           replacements' = M.union paramReps replacements
-                                       body' <- makeIdsUniqueInExp replacements' body
-                                       let newDec = Fundec (x, FundecF name' params' result body')
-                                       return $ (newDec : decs, replacements'))
-                                ([], replaceNames)
-                                fundecs
-  let fundecs' = reverse rfundecs'
-  return (fundecs', replacements')
+  fundecs' <- ST.mapM (\ (Fundec (x, FundecF name params result body)) -> do
+                         let Just name' = M.lookup name replaceNames
+                         params' <- mapM (\(Field name typ) -> do
+                                            name' <- S.genSym
+                                            return $ Field name' typ)
+                                    params
+                         let paramReps = M.fromList $ zip (map fieldName params)
+                                         (map fieldName params')
+                             replacements' = M.union paramReps replaceNames
+                         body' <- makeIdsUniqueInExp replacements' body
+                         return $ Fundec (x, FundecF name' params' result body'))
+              fundecs
+  return (fundecs', replaceNames)
 
 
 {-- Finding Escaped Vars

@@ -1,8 +1,16 @@
 let
-        var i := 1
-        function g(x : int) : int = i+1+x
-        var i := 2
-        function g(x : int) : int = i+1+x
+        var i := 1 /* i1 */
+        function g(x : int) : int = /* g1 and x1 */
+                 (i+1+x;
+                 let var i := 2 /* i2 */
+                     function g(x : int, i : int) : int = x+i /* x2 and i3 */
+                 in g(x + i) /* should be x1 and i2 */
+                 end)
+        var i := 2 /* i4 */
+        function g(x : int) : int = i+1+f(x) /* g3(x3) = i4 + 1 + f1(x3) */
+        function f(x : int) : int = g(x) /* f1(x4) = g3(x4) */
 in
-        g(i)
+        for i := 0 to 10 /* i5 */
+            do g(i) /* g3(i5) */
+
 end

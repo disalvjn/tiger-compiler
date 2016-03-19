@@ -1,4 +1,4 @@
-module Symbol(empty, name, intern, genSym, genTemp, genLabel,
+module Symbol(empty, name, intern, genSym, genTemp, genLabel, symbol,
               Symbol, Temp, Label, SymbolTable) where
 import qualified Data.Map as M
 import Control.Monad.State.Lazy
@@ -16,6 +16,9 @@ empty = SymbolTable M.empty M.empty 0
 
 name :: Symbol -> SymbolTable -> Maybe String
 name s table = M.lookup s (toStr table)
+
+symbol :: String -> SymbolTable -> Maybe Symbol
+symbol s table = M.lookup s (toSym table)
 
 nextInt :: State SymbolTable Int
 nextInt = do

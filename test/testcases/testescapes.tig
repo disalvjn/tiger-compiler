@@ -1,0 +1,36 @@
+/* Before escapes are calculated, it is assumed that each symbol in the AST
+has been given a unique name, preventing one name from shadowing another.
+For ease of testing, I use unique names in the source code. */
+
+/* i -- escapes
+   j -- escapes
+   k -- doesn't escape
+   x -- doesn't escape
+   z -- escapes
+   n -- doesn't escape
+   y -- doesn't escape
+   f -- escapes
+   h -- doesn't escape
+   u -- doesn't escape
+*/
+
+
+let var i := 1 /* escapes in addI */
+    var j := 2 /* escapes in body's addJ */
+    var k := 3 /* doesn't escape */
+    function addI(x : int) : int = x+i /* x doesn't escape */
+    function adder(z : int) : int = /* z escapes in addZ */
+             let function addZ(n : int) : int = z+n /* n doesn't escape */
+             in addZ(6)
+             end
+in
+    addI(5);
+    let function addJ(y : int) : int = y+j /* y doesn't escape */
+    in addJ(5)
+    end;
+    for f := 0 to 10 do /* f escapes in addF */
+        let function addF(h : int) : int = f + h /* h doesn't escape */
+        in print(1)
+        end;
+    for u := 0 to 10 do print(u) /* u doesn't escape */
+end

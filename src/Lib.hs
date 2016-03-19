@@ -20,3 +20,5 @@ uniqueIds str =
   let (symTab, tokens) = tokenize str
       ast = parse tokens
   in ST.runState (Translate.makeIdsUnique ast) symTab
+
+--fmap uniqueIds $ readFile "../test/testcases/testmakeidsunique.tig"
