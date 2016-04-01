@@ -1,7 +1,7 @@
 module Symbol(empty, name, intern, genSym, genTemp, genLabel, symbol,
               Symbol, Temp, Label, SymbolTable) where
 import qualified Data.Map as M
-import Control.Monad.State.Lazy
+import Control.Monad.State.Strict
 
 newtype Symbol = Symbol Int deriving (Ord, Eq, Show)
 newtype Temp = Temp Int deriving (Ord, Eq, Show)

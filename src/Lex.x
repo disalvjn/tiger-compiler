@@ -1,7 +1,7 @@
 {
 module Lex (Token(..), TokenType(..), Pos, tokenize) where
 import qualified Symbol as S
-import Control.Monad.State.Lazy
+import Control.Monad.State.Strict
 }
 
 %wrapper "posn"

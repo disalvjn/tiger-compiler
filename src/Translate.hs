@@ -1,4 +1,4 @@
-module Translate(findEscapes, makeIdsUnique) where
+module Translate(findEscapes, makeIdsUnique, buildAccessMap, TransConfig(..), translate) where
 import AST
 import Lex(Pos)
 import qualified Semant as Semant
@@ -6,12 +6,12 @@ import qualified Frame as Fr
 import qualified Data.Map as M
 import qualified Data.Set as Set
 import qualified Symbol as S
-import qualified Control.Monad.State.Lazy as ST
+import qualified Control.Monad.State.Strict as ST
 import qualified Tree as Tr
 import qualified Data.List as Data.List
 import qualified Control.Monad.RWS as RWS
 import qualified Data.Monoid as Monoid
-import Data.Maybe(fromJust)
+import Data.Maybe(fromJust, catMaybes)
 import Control.Monad(liftM)
 
 {-- Making IDs Unique
@@ -65,9 +65,8 @@ makeIdsUniqueInVar replacements (Var (x, var)) =
          SimpleVar sym -> let (Just sym') = M.lookup sym replacements
                           in ret $ SimpleVar sym'
          FieldVar var sym -> do
-                  let (Just sym') = M.lookup sym replacements
                   var' <- makeIdsUniqueInVar replacements var
-                  ret $ FieldVar var' sym'
+                  ret $ FieldVar var' sym
          SubscriptVar var exp -> do
                   var' <- makeIdsUniqueInVar replacements var
                   exp' <- makeIdsUniqueInExp replacements exp
@@ -299,11 +298,6 @@ liftState state = do
   RWS.put s
   return a
 
-justs :: [Maybe a] -> [a]
-justs [] = []
-justs (Nothing : xs) = justs xs
-justs (Just x : xs) = x : justs xs
-
 asExp = liftState . Tr.asExp
 asStm = liftState . Tr.asStm
 translateIntoExp access frame breakTo exp = translateExp access frame breakTo exp >>= asExp
@@ -318,13 +312,14 @@ data TransConfig = TransConfig { framePtr :: S.Temp
                                , initArrayLabel :: S.Label}
 
 translate :: TransConfig -> AccessMap -> Fr.Frame -> Semant.TypedExp
-          -> ST.State S.SymbolTable (Tr.Ex, [Fr.Fragment])
+          -> ST.State S.SymbolTable (Tr.Stm, [Fr.Fragment])
 translate config access mainFrame ast = do
   symTable <- ST.get
   let (trans, symTable', frags) =
           RWS.runRWS (translateExp access mainFrame Nothing ast) config symTable
   ST.put symTable'
-  return (trans, Monoid.appEndo frags [])
+  transStm <- Tr.asStm trans
+  return (transStm, Monoid.appEndo frags [])
 
 --translateExp :: AccessMap -> Fr.Frame -> Semant.TypedExp -> ST.State S.SymbolTable Tr.Ex
 translateExp :: AccessMap -> Fr.Frame -> Maybe S.Label -> Semant.TypedExp -> TranslateResults
@@ -536,7 +531,7 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                return $ Tr.Ex $ Tr.Eseq branchEtc join
 
       LetExp decs body -> do
-                  varInits <- liftM (Tr.seqStm . justs)
+                  varInits <- liftM (Tr.seqStm . catMaybes)
                               $ mapM (translateDec access frame breakTo) decs
                   transBody <- recurIntoExp body
                   return $ Tr.Ex $ Tr.Eseq varInits transBody

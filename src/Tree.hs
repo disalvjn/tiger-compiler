@@ -1,7 +1,7 @@
 module Tree(Stm(..), Exp(..), Ex(..), Binop(..), Relop(..),
-           asExp, asStm, asCx, seqStm) where
+           asExp, asStm, asCx, seqStm, Tree.negate) where
 import qualified Symbol as S
-import qualified Control.Monad.State as ST
+import qualified Control.Monad.State.Strict as ST
 
 data Stm = Seq Stm Stm
          | Label S.Label
@@ -9,6 +9,7 @@ data Stm = Seq Stm Stm
          | CJump Relop Exp Exp S.Label S.Label
          | Move Exp Exp
          | ExpStm Exp
+           deriving (Show)
 
 data Exp = Binop Binop Exp Exp
          | Mem Exp
@@ -17,6 +18,7 @@ data Exp = Binop Binop Exp Exp
          | Name S.Label
          | Const Int
          | Call Exp [Exp]
+           deriving (Show)
 
 type CJumpToLabels = S.Label -> S.Label -> Stm
 
@@ -24,9 +26,18 @@ data Ex = Ex Exp
         | Nx Stm
         | Cx CJumpToLabels
 
-data Binop = Plus | Minus | Mul | Div | And | Or
+data Binop = Plus | Minus | Mul | Div
+             deriving (Show)
 data Relop = Eq | Ne | Lt | Gt | Le | Ge
+             deriving (Show)
 
+negate :: Relop -> Relop
+negate Eq = Ne
+negate Ne = Eq
+negate Lt = Ge
+negate Ge = Lt
+negate Le = Gt
+negate Gt = Le
 
 -- a > b | c < d ->
 -- Cx (\ t f -> Seq (CJump (Gt, a, b, t, z), Seq (Label z, CJump (Lt, c, d, t, f)))

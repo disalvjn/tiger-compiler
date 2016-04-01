@@ -2,7 +2,7 @@ module Translation(tests) where
 
 import Test.HUnit
 
-import qualified Control.Monad.State as ST
+import qualified Control.Monad.State.Strict as ST
 import Control.Applicative
 
 import Parse(parse)
@@ -25,10 +25,10 @@ calculateEscapes str =
       ast = parse tokens
   in (Translate.findEscapes ast, symTab)
 
-testcase name = "test/testcases/" ++ name
+testcase name = "test/testcases/translation/" ++ name
 
 testMakeUniqueIds = do
-  modifiedAST <- liftM uniqueIds $ readFile . testcase $ "testmakeidsunique.tig"
+  modifiedAST <- liftM uniqueIds $ readFile . testcase $ "makeidsunique1.tig"
   let Exp (_,LetExp {letDecs = [Dec (_,VarDec {varName = i1, varTyp = _, varInit = _}),
                                  Dec (_ ,FunDec [Fundec (_ ,FundecF {funName = g1, funParams = [Field {fieldName = x1, fieldTyp = _}], funResult = _,
                                                                      funBody = Exp (_,SeqExp [Exp (_,OpExp {opLeft = Exp (_,OpExp {opLeft = Exp (_,VarExp (Var (_,SimpleVar shouldBe'i1'1))),
@@ -83,7 +83,7 @@ testMakeUniqueIds = do
 
 
 testFindEscapes = do
-  (escapesSet, table) <- liftM calculateEscapes $ readFile . testcase $ "testescapes.tig"
+  (escapesSet, table) <- liftM calculateEscapes $ readFile . testcase $ "escapes1.tig"
   let Just i = S.symbol "i" table
       Just j = S.symbol "j" table
       Just k = S.symbol "k" table

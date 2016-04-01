@@ -1,6 +1,6 @@
-module Frame(Frame(..), Access(..), Fragment(..),
+module Frame(Frame(..), Access(..), Fragment(..), SpecialRegs(..),
              newFrame, escapesToAccesses, wordSize, externalCall, viewShift) where
-import qualified Control.Monad.State.Lazy as ST
+import qualified Control.Monad.State.Strict as ST
 import qualified Symbol as S
 import qualified Tree as Tr
 import Control.Applicative
@@ -21,6 +21,11 @@ data Frame = Frame {frameType :: FrameType,
 
 data Fragment = StringFrag S.Label String
               | ProcFrag Tr.Stm Frame
+                deriving (Show)
+
+data SpecialRegs a = SpecialRegs { zero :: a -- always zero
+                                 , fp :: a -- frame pointer
+                                 , v0 :: a} -- stores results
 
 newFrame :: [Access] -> [Access] -> S.Label -> S.Label -> Frame
 newFrame = Frame Mips

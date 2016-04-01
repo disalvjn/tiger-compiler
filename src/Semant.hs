@@ -8,7 +8,7 @@ import Lex(Pos)
 import qualified Symbol as S
 import qualified Data.Map as M
 import qualified Data.Set as Set
-import qualified Control.Monad.State.Lazy as ST
+import qualified Control.Monad.State.Strict as ST
 import Control.Monad.Except as E
 
 {--   TYPES

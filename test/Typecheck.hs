@@ -2,7 +2,7 @@ module Typecheck(tests) where
 
 import Test.HUnit
 
-import qualified Control.Monad.State as ST
+import qualified Control.Monad.State.Strict as ST
 import Control.Applicative
 
 import Parse(parse)
@@ -45,7 +45,7 @@ typecheck str =
      else result
 
 typecheckTestCase filename =
-    typecheck <$> (readFile $ "test/testcases/" ++ filename)
+    typecheck <$> (readFile $ "test/testcases/appel\'s/" ++ filename)
 
 assertError ofType typechecked =
     either (\e -> assertBool ("error " ++ (show e) ++ " is of type " ++ (show ofType))
