@@ -11,8 +11,58 @@ import qualified Tree as Tr
 import qualified Data.List as Data.List
 import qualified Control.Monad.RWS as RWS
 import qualified Data.Monoid as Monoid
-import Data.Maybe(fromJust, catMaybes)
+import Data.Maybe(catMaybes)
 import Control.Monad(liftM)
+
+fromJust msg x =
+    case x of
+      Just y -> y
+      Nothing -> error msg
+
+desugar :: Semant.TypedExp -> ST.State S.SymbolTable Semant.TypedExp
+desugar ast@(Exp (datum@(pos, typ), exp)) =
+    case exp of
+      ForExp var lo hi body -> do
+          {--
+            for i := lo to hi body -->
+            let var i := lo
+                var limit := hi
+            in if i < limit
+               then while 1 do (body; if i < limit then i := i + 1 else break)
+
+            This works when hi = maxInt, unlike a more straightforward translation into a while loop.
+          --}
+          limitSym <- S.genSym
+          let declareVar = Dec (pos, VarDec var Nothing lo)
+              declareLimit = Dec (pos, VarDec limitSym Nothing hi)
+              decs = [declareVar, declareLimit]
+              varAsVar = Var ((pos, Semant.IntType), SimpleVar var)
+              limitAsVar = Var ((pos, Semant.IntType), SimpleVar limitSym)
+              varExp v@(Var ((pos, typ), _)) = Exp ((pos, typ), VarExp v)
+              -- i < limit
+              isVarLessThanLimit = Exp ((pos, Semant.IntType),
+                                           OpExp (varExp varAsVar) LtOp (varExp limitAsVar))
+              -- i := i + 1
+              incVar = Exp (datum, AssignExp varAsVar
+                                     (Exp ((pos, Semant.IntType),
+                                           OpExp (varExp varAsVar) PlusOp
+                                                     (Exp ((pos, Semant.IntType), IntExp 1)))))
+              -- if i < limit then i := i + 1 else break
+              reenterLoop = Exp (datum, IfExp isVarLessThanLimit incVar
+                                          (Just (Exp (datum, BreakExp))))
+
+              -- (body; if i < limit then i := i + 1 else break)
+              whileBody = Exp (datum, SeqExp [body, reenterLoop])
+              -- while 1 do (body; if i < limit then i := i + 1 else break)
+              whileLoop = Exp (datum, WhileExp (Exp ((pos, Semant.IntType), IntExp 1)) whileBody)
+              -- if i < limit then while 1 do (body; if i < limit then i := i + 1 else break)
+              enterLoop = Exp (datum, IfExp isVarLessThanLimit whileLoop Nothing)
+              entireExp = Exp (datum, LetExp decs enterLoop)
+          desugar entireExp
+      _ -> mapMExp desugar ast
+
+
+
 
 {-- Making IDs Unique
 
@@ -37,7 +87,13 @@ makeIdsUniqueInExp replacements ast@(Exp (x, exp)) =
                   var' <- makeIdsUniqueInVar replacements var
                   ret $ VarExp var'
          CallExp f args -> do
-                  let (Just f') = M.lookup f replacements
+                  -- This is sketchy... it argues that if there's an undefined
+                  -- function, then it's a runtime function (like "print"), and
+                  -- we can just use its own symbol as its replacement.
+                  -- I should fix this in the future by passing in a
+                  -- a list of runtime functions or something.
+                  -- Also need to do something about what frames they're in...
+                  let f' = maybe f id (M.lookup f replacements)
                   args' <- mapM (makeIdsUniqueInExp replacements) args
                   ret $ CallExp f' args'
          AssignExp var init -> do
@@ -195,9 +251,9 @@ data AccessMap = AccessMap {amVarAccess :: M.Map S.Symbol VarAccess,
                             amFunLabelFrames :: M.Map S.Label Fr.Frame}
                  deriving (Show)
 
-varAccess v = fromJust . M.lookup v . amVarAccess
-funFrameByName name = fromJust . M.lookup name . amFunNameFrames
-funFrameByLabel lab = fromJust . M.lookup lab . amFunLabelFrames
+varAccess v = (fromJust $ "varAccess " ++ (show v)) . M.lookup v . amVarAccess
+funFrameByName name =  M.lookup name . amFunNameFrames
+funFrameByLabel lab = (fromJust $ "funFrameByLabel " ++ (show lab)) . M.lookup lab . amFunLabelFrames
 
 emptyAccessMap = AccessMap M.empty M.empty M.empty
 
@@ -309,14 +365,21 @@ data TransConfig = TransConfig { framePtr :: S.Temp
                                , returnRegister :: S.Temp
                                , mallocLabel :: S.Label
                                , stringEqLabel :: S.Label
-                               , initArrayLabel :: S.Label}
+                               , initArrayLabel :: S.Label
+                               , runTimeFunctions :: M.Map S.Symbol S.Label
+                               }
 
-translate :: TransConfig -> AccessMap -> Fr.Frame -> Semant.TypedExp
+translate :: TransConfig -> Semant.TypedExp
           -> ST.State S.SymbolTable (Tr.Stm, [Fr.Fragment])
-translate config access mainFrame ast = do
+translate config ast = do
+  desugaredAst <- desugar ast
+  astWithUniqueIds <- makeIdsUnique desugaredAst
+  let escapes = findEscapes astWithUniqueIds
+  (mainFrame, access) <- buildAccessMap escapes astWithUniqueIds
+
   symTable <- ST.get
   let (trans, symTable', frags) =
-          RWS.runRWS (translateExp access mainFrame Nothing ast) config symTable
+          RWS.runRWS (translateExp access mainFrame Nothing astWithUniqueIds) config symTable
   ST.put symTable'
   transStm <- Tr.asStm trans
   return (transStm, Monoid.appEndo frags [])
@@ -343,11 +406,18 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                -- the static link is passed explicitly as an argument.
                framePtr <- RWS.asks framePtr
                args' <- mapM recurIntoExp args
-               let funFrame = funFrameByName fun access
-                   funLabel = Fr.frameName funFrame
-                   funParentLabel = Fr.parentFrame funFrame
-                   staticLink = createStaticLink access framePtr funParentLabel frame
-               return $ Tr.Ex $ Tr.Call (Tr.Name funLabel) (staticLink : args')
+               case funFrameByName fun access of
+                 -- The function is user defined :
+                 Just funFrame ->
+                   let funLabel = Fr.frameName funFrame
+                       funParentLabel = Fr.parentFrame funFrame
+                       staticLink = createStaticLink access framePtr funParentLabel frame
+                   in return $ Tr.Ex $ Tr.Call (Tr.Name funLabel) (staticLink : args')
+
+                 -- The function wasn't user defined, and is therefore a runtime fn :
+                 Nothing -> do
+                            Just funLabel <- RWS.asks (M.lookup fun . runTimeFunctions)
+                            return $ Tr.Ex $ Tr.Call (Tr.Name funLabel) args'
 
       OpExp left@(Exp ((_, compType), _)) op right -> do
                leftTrans <- recurIntoExp left
@@ -454,43 +524,7 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                    done = Tr.Label doneLabel
                return $ Tr.Nx $ Tr.Seq test (Tr.Seq body done)
 
-      ForExp var lo hi body -> do
-          {--
-            for i := lo to hi body -->
-            let var i := lo
-                var limit := hi
-            in if i < limit
-               then while 1 do (body; if i < limit then i := i + 1 else break)
-
-            This works when hi = maxInt, unlike a more straightforward translation into a while loop.
-          --}
-          limitSym <- liftState S.genSym
-          let declareVar = Dec (pos, VarDec var Nothing lo)
-              declareLimit = Dec (pos, VarDec limitSym Nothing hi)
-              decs = [declareVar, declareLimit]
-              varAsVar = Var ((pos, Semant.IntType), SimpleVar var)
-              limitAsVar = Var ((pos, Semant.IntType), SimpleVar limitSym)
-              varExp v@(Var ((pos, typ), _)) = Exp ((pos, typ), VarExp v)
-              -- i < limit
-              isVarLessThanLimit = Exp ((pos, Semant.IntType),
-                                           OpExp (varExp varAsVar) LtOp (varExp limitAsVar))
-              -- i := i + 1
-              incVar = Exp (datum, AssignExp varAsVar
-                                     (Exp ((pos, Semant.IntType),
-                                           OpExp (varExp varAsVar) PlusOp
-                                                     (Exp ((pos, Semant.IntType), IntExp 1)))))
-              -- if i < limit then i := i + 1 else break
-              reenterLoop = Exp (datum, IfExp isVarLessThanLimit incVar
-                                          (Just (Exp (datum, BreakExp))))
-
-              -- (body; if i < limit then i := i + 1 else break)
-              whileBody = Exp (datum, SeqExp [body, reenterLoop])
-              -- while 1 do (body; if i < limit then i := i + 1 else break)
-              whileLoop = Exp (datum, WhileExp (Exp ((pos, Semant.IntType), IntExp 1)) whileBody)
-              -- if i < limit then while 1 do (body; if i < limit then i := i + 1 else break)
-              enterLoop = Exp (datum, IfExp isVarLessThanLimit whileLoop Nothing)
-              entireExp = Exp (datum, LetExp decs enterLoop)
-          recur entireExp
+      -- ForExp should never happen -- desugar must be run before translation
 
       BreakExp -> let (Just breakToLabel) = breakTo -- Semant verifies every break is inside loop
                   in return $ Tr.Nx $ Tr.Jump (Tr.Name breakToLabel) [breakToLabel]
@@ -547,7 +581,7 @@ translateDec access frame breakTo (Dec (_, dec)) =
       VarDec name _ init -> do
                transInit <- translateExp access frame breakTo init >>= asExp
                framePtr <- RWS.asks framePtr
-               let (VarAccess location _ _ )= varAccess name access
+               let (VarAccess location _ _ ) = varAccess name access
                case location of
                  Fr.InReg temp -> return . Just $ Tr.Move (Tr.Temp temp) transInit
                  -- Local variables are guaranteed to be in this frame; no need to chase
@@ -557,7 +591,8 @@ translateDec access frame breakTo (Dec (_, dec)) =
                      in return . Just $ Tr.Move varLoc transInit
 
 translateFunDec access breakTo (Fundec (_, FundecF name params _ body)) = do
-  let frame = funFrameByName name access
+  -- every declared function has a corresponding frame
+  let (Just frame) = funFrameByName name access
   returnReg <- liftM Tr.Temp $ RWS.asks returnRegister
   transBody <- translateExp access frame breakTo body >>= asExp
   let bodyWithReturn = Tr.Move returnReg transBody

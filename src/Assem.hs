@@ -17,6 +17,10 @@ data Assem temp label = ADD temp temp temp
                       | SW temp temp Int
                       | LI temp Int
                       | MOVE temp temp
+                      | JAL label
+                      | NOOP
+                      deriving (Show)
 
 data Instr temp label = Oper (Assem temp label) [temp] [temp] (Maybe [label])
                       | Label label
+                      deriving (Show)

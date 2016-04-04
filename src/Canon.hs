@@ -8,7 +8,15 @@ import qualified Data.Map as M
 import qualified Data.Set as Set
 import Data.Maybe(fromJust)
 import Data.List(find)
+import Debug.Trace (trace)
 import Control.Monad(liftM, (<=<))
+
+maybeOr x y =
+    case x of
+      Nothing -> y
+      Just _ -> x
+
+spy x = trace (show x) x
 
 {-- This module very closely follows Appel's provided code
   (as in, I consulted it before hand, mulled it over, tried re-implementing it,
@@ -16,7 +24,11 @@ import Control.Monad(liftM, (<=<))
   http://www.cs.princeton.edu/~appel/modern/ml/chap8/ in canon.sml --}
 
 canonicize :: Stm -> ST.State S.SymbolTable [Stm]
-canonicize = traceSchedule <=< basicBlocks <=< linearize
+canonicize stm = do
+  linear <- linearize stm
+  blocks <- basicBlocks (spy linear)
+  traced <- traceSchedule (spy blocks)
+  return (spy traced)
 
 {-- Post conditions:
   1. The parent of every Stm node is a Stm
@@ -36,6 +48,7 @@ commutesWith :: Exp -> Stm -> Bool
 commutesWith (Const _) _ = True
 commutesWith  (Name _) _ = True
 commutesWith _ (ExpStm (Const _)) = True
+commutesWith _ _ = False
 
 mseq :: Maybe Stm -> Maybe Stm -> Maybe Stm
 mseq x y =
@@ -115,13 +128,14 @@ walkExp exp =
 --}
 -- starting label, list of stms EXCLUDING starting label and end jump, end jump
 data Block = Block S.Label [Stm] Stm
+             deriving (Show)
 
 basicBlocks :: [Stm] -> ST.State S.SymbolTable ([Block], S.Label) -- blocks, epilogue label
 basicBlocks stms = do
-  epilogue <- S.genLabel
+  epilogue <- trace "begin basicBlocks" S.genLabel
   let go stms block blocks curLabel =
           let nextBlock restStms jump =
-                  let blockStms = reverse stms
+                  let blockStms = reverse block
                       blockDatum = Block (fromJust curLabel) blockStms jump
                   in go restStms [] (blockDatum : blocks) curLabel
           in case block of
@@ -173,38 +187,39 @@ type Trace = [Block]
 
 traceSchedule :: ([Block], S.Label) -> ST.State S.SymbolTable [Stm]
 traceSchedule (blocks, epilogueLabel) = do
-  let traces = findTraces blocks
+  let traces = trace "findTraces" (findTraces blocks)
   newStms <- merge epilogueLabel $ concat traces
   return newStms
 
 findTraces :: [Block] -> [Trace]
 findTraces blocks =
     let byLabels = blocksByLabels blocks
-        startingWith label = fromJust $ M.lookup label byLabels
+        startingWith label =  M.lookup label byLabels
 
         unmarkedSuccessor marked stm =
             let isMarked label = Set.member label marked
             in case stm of
-                 Jump _ labels -> fmap startingWith $ find (not . isMarked) labels
+                 Jump _ labels -> find (not . isMarked) labels >>= startingWith
                  CJump _ _ _ f t -> case (not . isMarked $ f, not . isMarked $ t) of
-                                      (True, _) -> Just $ startingWith f
-                                      (_, True) -> Just $ startingWith t
+                                      (True, True) -> startingWith f `maybeOr` startingWith t
+                                      (True, False) -> startingWith f
+                                      (False, True) -> startingWith t
                                       _ -> Nothing
                  _ -> Nothing
 
         traces blocks marked tlist =
               case blocks of
                 [] -> reverse tlist
-                (block : blocks') -> traceBlock blocks marked tlist block []
+                (block : blocks') -> traceBlock blocks' marked tlist block []
 
         traceBlock blocks marked tlist block@(Block label _ jump) trace =
-            let nextTrace marked = traces blocks marked (reverse trace : tlist)
+            let nextTrace marked trace = traces blocks marked (reverse trace : tlist)
             in if label `Set.member` marked
-               then nextTrace marked
+               then nextTrace marked trace
                else let marked' = Set.insert label marked
                         nextBlock = unmarkedSuccessor marked' jump
                     in case nextBlock of
-                         Nothing -> nextTrace marked'
+                         Nothing -> nextTrace marked' (block : trace)
                          Just next -> traceBlock blocks marked' tlist next (block : trace)
 
     in traces blocks Set.empty []

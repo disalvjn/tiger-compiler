@@ -75,6 +75,7 @@ ExpNoBinop : Var {let Var v = $1 in Exp (fst v, VarExp $ Var v)}
 | break {Exp (pos $1, BreakExp)}
 | let DecList in SeqExp end {Exp (pos $1, LetExp $2 (Exp (pos $3, SeqExp $4)))}
 | id '[' Exp ']' of Exp {Exp (pos $1, ArrayExp (getId $1) $3 $6)}
+| '-' Exp {Exp (pos $1, OpExp (Exp (pos $1, IntExp 0)) MinusOp $2)}
 
 IfExp : if Exp then Exp AltExp {Exp (pos $1, IfExp $2 $4 $5)}
 
