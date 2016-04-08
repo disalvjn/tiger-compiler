@@ -167,6 +167,7 @@ basicBlocks stms = do
 
   blocks <- go stms [] [] Nothing
   return (blocks, epilogue)
+
 blocksByLabels :: [Block] -> M.Map S.Label Block
 blocksByLabels = M.fromList . map (\ block@(Block lab _ _) -> (lab, block))
 

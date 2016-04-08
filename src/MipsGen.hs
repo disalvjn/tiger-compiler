@@ -1,4 +1,5 @@
 module MipsGen(gen) where
+import Util
 import qualified Assem as A
 import qualified Tree as T
 import qualified Symbol as S
@@ -14,13 +15,6 @@ type CodegenResults = RWS.RWS (Fr.Registers S.Temp) (Monoid.Endo [Instr]) S.Symb
 
 emit :: Instr -> CodegenResults ()
 emit instr = RWS.tell $ Monoid.Endo ([instr]++)
-
-liftState :: RWS.Monoid w => ST.State s a -> RWS.RWS r w s a
-liftState state = do
-  init <- RWS.get
-  let (a,s) = ST.runState state init
-  RWS.put s
-  return a
 
 genTemp = liftState S.genTemp
 

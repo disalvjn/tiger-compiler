@@ -10,6 +10,7 @@ import qualified Data.Map as M
 import qualified Data.Set as Set
 import qualified Control.Monad.State.Strict as ST
 import Control.Monad.Except as E
+import Util
 
 {--   TYPES
 
@@ -466,9 +467,6 @@ anyDuplicates list =
                         then Just x
                         else go xs $ Set.insert x set
     in go list Set.empty
-
-whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
-whenJust x f = maybe (return ()) f x
 
 annotateDec :: PosDec -> (E.ExceptT TypeError (ST.State Environment)) TypedDec
 annotateDec (Dec (pos, dec)) =

@@ -1,4 +1,4 @@
-module Assem(Assem(..), Instr(..)) where
+module Assem(Assem(..), Instr(..), sourceRegs, destRegs, jumpsTo) where
 -- http://www.mrc.uidaho.edu/mrc/people/jff/digital/MIPSir.html
 data Assem temp label = ADD temp temp temp
                       | SUB temp temp temp
@@ -21,6 +21,19 @@ data Assem temp label = ADD temp temp temp
                       | NOOP
                       deriving (Show)
 
-data Instr temp label = Oper (Assem temp label) [temp] [temp] (Maybe [label])
+data Instr temp label = Oper (Assem temp label) [temp] [temp] (Maybe [label]) -- assem, src, dest
                       | Label label
                       deriving (Show)
+
+sourceRegs :: Instr temp label -> [temp]
+sourceRegs (Oper _ src _ _) = src
+sourceRegs _ = []
+
+destRegs :: Instr temp label -> [temp]
+destRegs (Oper _ _ dest _) = dest
+destRegs _ = []
+
+
+jumpsTo :: Instr temp label -> [label]
+jumpsTo (Oper _ _ _ list) = maybe [] id list
+jumpsTo _ = []

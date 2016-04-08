@@ -1,5 +1,6 @@
 module Translate(findEscapes, makeIdsUnique, buildAccessMap, TransConfig(..), translate) where
 import AST
+import Util
 import Lex(Pos)
 import qualified Semant as Semant
 import qualified Frame as Fr
@@ -346,13 +347,6 @@ frameStaticLink = head . Fr.frameFormals
     placeholder
 
 --}
-
-liftState :: RWS.Monoid w => ST.State s a -> RWS.RWS r w s a
-liftState state = do
-  init <- RWS.get
-  let (a,s) = ST.runState state init
-  RWS.put s
-  return a
 
 asExp = liftState . Tr.asExp
 asStm = liftState . Tr.asStm

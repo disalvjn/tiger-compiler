@@ -16,6 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Lib, Lex, Parse, Semant, Symbol, AST, Translate, Tree, Frame
+                       , Liveness, Assem, DirectedGraph, MipsGen, Util
   build-depends:       base >= 4.7 && < 5
                      , array
                      , mtl
@@ -33,7 +34,7 @@ executable tiger-compiler-exe
 test-suite tiger-compiler-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
-  other-modules:       Typecheck, Translation
+  other-modules:       Typecheck, Translation, TestLiveness
   main-is:             Spec.hs
   build-depends:       base
                      , tiger-compiler
