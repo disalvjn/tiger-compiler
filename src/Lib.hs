@@ -1,15 +1,16 @@
 module Lib where
+{--
 import Parse(parse)
 import Lex(tokenize)
 import qualified Symbol as S
 import qualified Control.Monad.State.Strict as ST
-import AST
-import qualified Semant as Semant
-import qualified Translate as Translate
-import qualified Canon as Canon
-import qualified Frame as Fr
+import AST.Core
+import qualified Semant.Core as Semant
+import qualified Translate.Core as Translate
+import qualified Translate.Canon as Canon
+import qualified Translate.Frame as Fr
 import qualified Data.Map as M
-import qualified MipsGen as Gen
+import qualified CodeGen.MipsGen as Gen
 import Debug.Trace(trace)
 
 typecheck str =
@@ -52,3 +53,4 @@ translateStr str =
 --fmap uniqueIds $ readFile "../test/testcases/testmakeidsunique.tig"
 -- fmap translateStr $ readFile "../test/testcases/test3.tig"
 -- fmap translateStr $ readFile "../test/testcases/appel's/queens.tig"
+--}

@@ -15,8 +15,14 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Lib, Lex, Parse, Semant, Symbol, AST, Translate, Tree, Frame
-                       , Liveness, Assem, DirectedGraph, MipsGen, Util
+  exposed-modules:     Lib, Symbol, Util
+                     , FrontEnd.Lex, FrontEnd.Parse, FrontEnd.Core
+                     , AST.Core, AST.Traversal
+                     , Semant.Type, Semant.Environment, Semant.Core
+                     , Translate.Core, Translate.Tree, Translate.Frame, Translate.Canon
+                     , Translate.UniqueIds, Translate.Access
+                     , CodeGen.Assem, CodeGen.MipsGen
+                     , Allocation.Liveness, Allocation.DirectedGraph
   build-depends:       base >= 4.7 && < 5
                      , array
                      , mtl
@@ -34,7 +40,7 @@ executable tiger-compiler-exe
 test-suite tiger-compiler-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
-  other-modules:       Typecheck, Translation, TestLiveness
+  other-modules:       TestSemant, TestTranslate, TestLiveness
   main-is:             Spec.hs
   build-depends:       base
                      , tiger-compiler

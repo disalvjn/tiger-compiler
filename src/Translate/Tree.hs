@@ -1,5 +1,5 @@
-module Tree(Stm(..), Exp(..), Ex(..), Binop(..), Relop(..),
-           asExp, asStm, asCx, seqStm, Tree.negate) where
+module Translate.Tree(Stm(..), Exp(..), Ex(..), Binop(..), Relop(..),
+                      asExp, asStm, asCx, seqStm, Translate.Tree.negate) where
 import qualified Symbol as S
 import qualified Control.Monad.State.Strict as ST
 

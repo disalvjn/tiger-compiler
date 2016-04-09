@@ -1,6 +1,6 @@
-module DirectedGraph(Node, DGraph,
-                     empty, newNode, addNode, newEdge, newBiEdge,
-                     successors, predecessors, nodes, isEdge) where
+module Allocation.DirectedGraph(Node, DGraph,
+                                empty, newNode, addNode, newEdge, newBiEdge,
+                                successors, predecessors, nodes, isEdge) where
 import qualified Data.Map as M
 import qualified Control.Monad.State.Strict as ST
 import Data.Maybe(fromJust)

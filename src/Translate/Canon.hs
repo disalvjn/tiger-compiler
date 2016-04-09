@@ -1,7 +1,7 @@
-module Canon(canonicize) where
+module Translate.Canon(canonicize) where
 
 import qualified Symbol as S
-import Tree
+import Translate.Tree
 
 import qualified Control.Monad.State.Strict as ST
 import qualified Data.Map as M
@@ -251,7 +251,7 @@ merge epilogue (Block lab stms jump : restBlocks) = do
 
     (CJump op e1 e2 t f, (Label l : _)) ->
         if f == l then return joinedStms else
-        if t ==l then let newJump = CJump (Tree.negate op) e1 e2 f t
+        if t ==l then let newJump = CJump (Translate.Tree.negate op) e1 e2 f t
                           in return $ (Label lab) : (stms ++ (newJump : restStms))
         else joinedStmsWithNewCJump
 

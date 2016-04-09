@@ -1,9 +1,9 @@
-module MipsGen(gen) where
+module CodeGen.MipsGen(gen) where
 import Util
-import qualified Assem as A
-import qualified Tree as T
+import qualified CodeGen.Assem as A
+import qualified Translate.Tree as T
+import qualified Translate.Frame as Fr
 import qualified Symbol as S
-import qualified Frame as Fr
 
 import qualified Control.Monad.RWS as RWS
 import Control.Monad(zipWithM_)

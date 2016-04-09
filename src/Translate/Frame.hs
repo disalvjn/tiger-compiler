@@ -1,10 +1,10 @@
-module Frame(Frame(..), Access(..), Fragment(..), SpecialRegs(..), Registers(..),
-             newFrame, escapesToAccesses, wordSize, externalCall, viewShift
-            , calldefs, createRegs) where
+module Translate.Frame(Frame(..), Access(..), Fragment(..), SpecialRegs(..), Registers(..),
+                       newFrame, escapesToAccesses, wordSize, externalCall, viewShift
+                      , calldefs, createRegs) where
 import qualified Control.Monad.State.Strict as ST
 import qualified Symbol as S
-import qualified Tree as Tr
-import qualified Assem as Assem
+import qualified Translate.Tree as Tr
+import qualified CodeGen.Assem as Assem
 import Control.Applicative
 
 wordSize = 4

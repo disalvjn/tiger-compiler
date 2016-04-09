@@ -1,64 +1,9 @@
--- Transliteration of what's in the book
--- http://lambda-the-ultimate.org/node/4170#comment-63836
-module AST(VarF(..), ExpF(..), DecF(..), FundecF(..), TyF(..), Oper(..), Field(..),
-           Exp(..), Var(..), Dec(..), Fundec(..), Ty(..),
-           PosExp, PosVar, PosTy, PosDec, PosFundec,
-           mapExp, mapMExp, transformExp, transformMExp, foldExp, foldMExp) where
-import Lex(Pos)
-import Symbol(Symbol)
+module AST.Traversal(mapExp, mapMExp, transformExp, transformMExp, foldExp, foldMExp) where
+
 import Control.Monad(liftM)
+import AST.Core
 
-data VarF exp var = SimpleVar Symbol
-                  | FieldVar var Symbol
-                  | SubscriptVar var exp
-                    deriving (Show, Eq)
-
-data Oper = PlusOp  | MinusOp  | TimesOp  | DivideOp | EqOp
-          | NeqOp | LtOp | LeOp | GtOp | GeOp | AndOp | OrOp
-          deriving (Show, Eq)
-
-data ExpF exp var dec = VarExp var
-                       | NilExp
-                       | IntExp Int
-                       | StringExp String
-                       | CallExp {callFunc :: Symbol, callArgs :: [exp]}
-                       | OpExp {opLeft :: exp, opOper :: Oper, opRight :: exp}
-                       | RecordExp {recFields :: [(Symbol, exp)], recTyp :: Symbol}
-                       | SeqExp [exp]
-                       | AssignExp {assignVar :: var, assignExp :: exp}
-                       | IfExp {ifPred :: exp, ifConseq :: exp, ifAlt :: Maybe exp}
-                       | WhileExp {whileTest :: exp, whileBody :: exp}
-                       | ForExp {forVar :: Symbol, forLo :: exp, forHi :: exp,
-                                 forBody :: exp}
-                       | BreakExp
-                       | LetExp {letDecs :: [dec], letBody :: exp}
-                       | ArrayExp {arrayTyp :: Symbol, arraySize :: exp,
-                                   arrayInit :: exp}
-                         deriving (Show, Eq)
-
-data DecF exp fundec ty = FunDec [fundec]
-                        | VarDec {varName :: Symbol, varTyp :: Maybe Symbol,
-                                  varInit :: exp}
-                        | TypeDec [(Symbol, ty)] -- typename and type
-                          deriving (Show, Eq)
-
-data TyF = NameTy Symbol
-         | RecordTy [Field]
-         | ArrayTy Symbol
-           deriving (Show, Eq)
-
-data Field = Field {fieldName :: Symbol, fieldTyp :: Symbol}
-              deriving (Show, Eq)
-
-data FundecF exp = FundecF {funName :: Symbol, funParams :: [Field],
-                            funResult :: Maybe Symbol, funBody :: exp}
-                   deriving (Show, Eq)
-
-newtype Exp e v d t f = Exp (e, ExpF (Exp e v d t f) (Var e v d t f) (Dec e v d t f)) deriving (Show, Eq)
-newtype Var e v d t f = Var (v, VarF (Exp e v d t f) (Var e v d t f)) deriving (Show, Eq)
-newtype Dec e v d t f = Dec (d, DecF (Exp e v d t f) (Fundec e v d t f) (Ty t)) deriving (Show, Eq)
-newtype Ty t = Ty (t, TyF) deriving (Show, Eq)
-newtype Fundec e v d t f = Fundec (f, FundecF (Exp e v d t f)) deriving (Show, Eq)
+-- Lots of boiler plate... the types speak for themselves.
 
 transformExpF :: (exp -> (exp', a)) -> (var -> (var', a)) -> (dec -> (dec', a))
                  -> (a -> b -> b) -> b -> ExpF exp var dec -> (ExpF exp' var' dec', b)
@@ -337,9 +282,3 @@ mapMExp f (Exp (x, e)) =
 
 
      in mapMExpF f mapMToExpsInVar mapMToExpsInDec e >>= return . (\y -> Exp (x, y))
-
-type PosExp = Exp Pos Pos Pos Pos Pos
-type PosVar = Var Pos Pos Pos Pos Pos
-type PosDec = Dec Pos Pos Pos Pos Pos
-type PosTy = Ty Pos
-type PosFundec = Fundec Pos Pos Pos Pos Pos

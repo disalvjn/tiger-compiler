@@ -2,9 +2,9 @@ module TestLiveness(tests) where
 
 import Test.HUnit
 
-import qualified Assem as A
+import qualified CodeGen.Assem as A
 import qualified Symbol as S
-import qualified Liveness as L
+import qualified Allocation.Liveness as L
 import qualified Control.Monad.State.Strict as ST
 import qualified Data.Set as Set
 import qualified Data.Map as M

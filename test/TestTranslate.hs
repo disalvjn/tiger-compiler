@@ -1,29 +1,23 @@
-module Translation(tests) where
+module TestTranslate(tests) where
 
 import Test.HUnit
 
 import qualified Control.Monad.State.Strict as ST
 import Control.Applicative
 
-import Parse(parse)
-import Lex(tokenize)
-import AST
+import AST.Core
+import AST.Traversal
 import qualified Symbol as S
-import qualified Semant as Semant
-import qualified Translate as Translate
+import FrontEnd.Core(lexAndParse)
+import Translate.Access(findEscapes)
+import Translate.UniqueIds(makeIdsUnique)
 import qualified Data.Set as Set
 import Control.Monad(liftM)
 import Debug.Trace(trace)
 
-uniqueIds str =
-  let (symTab, tokens) = tokenize str
-      ast = parse tokens
-  in ST.evalState (Translate.makeIdsUnique ast) symTab
+uniqueIds str = ST.evalState (lexAndParse str >>= makeIdsUnique) S.empty
 
-calculateEscapes str =
-  let (symTab, tokens) = tokenize str
-      ast = parse tokens
-  in (Translate.findEscapes ast, symTab)
+calculateEscapes str = ST.runState (fmap findEscapes $ lexAndParse str) S.empty
 
 testcase name = "test/testcases/translation/" ++ name
 
@@ -83,7 +77,7 @@ testMakeUniqueIds = do
 
 
 testFindEscapes = do
-  (escapesSet, table) <- liftM calculateEscapes $ readFile . testcase $ "escapes1.tig"
+  (escapesSet,table) <- liftM calculateEscapes $ readFile . testcase $ "escapes1.tig"
   let Just i = S.symbol "i" table
       Just j = S.symbol "j" table
       Just k = S.symbol "k" table

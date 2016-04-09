@@ -1,11 +1,11 @@
-module Liveness(IGraph, buildIGraph, interferes) where
+module Allocation.Liveness(IGraph, buildIGraph, interferes) where
 import Util
-import qualified DirectedGraph as Graph
+import qualified Allocation.DirectedGraph as Graph
 import qualified Control.Monad.State.Strict as ST
 import qualified Symbol as S
 import qualified Data.Map as M
 import qualified Data.Set as Set
-import qualified Assem as A
+import qualified CodeGen.Assem as A
 import Data.Maybe(fromJust)
 
 type Instr = A.Instr S.Temp S.Label

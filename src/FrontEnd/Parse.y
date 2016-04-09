@@ -1,8 +1,8 @@
 {
-module Parse (parse) where
-import qualified Lex as L
+module FrontEnd.Parse (parse) where
+import qualified FrontEnd.Lex as L
 import Data.Maybe
-import AST
+import AST.Core
 }
 
 %name parse

@@ -1,248 +1,19 @@
 -- This lets me write functions that return either Either TypeError a or ExceptT TypeError m
 {-# LANGUAGE FlexibleContexts #-}
 
-module Semant(analyze, rootEnv, Type(..), TypeError(..),
-             isSubtypeOf, TypedExp, TypedVar, TypedDec) where
-import AST
-import Lex(Pos)
+module Semant.Core(analyze, rootEnv,
+                   TypedExp, TypedVar, TypedDec) where
+import AST.Core
+import AST.Traversal
+import Semant.Type
+import Semant.Environment
+import FrontEnd.Lex(Pos)
 import qualified Symbol as S
 import qualified Data.Map as M
 import qualified Data.Set as Set
 import qualified Control.Monad.State.Strict as ST
 import Control.Monad.Except as E
 import Util
-
-{--   TYPES
-
-   There are four terminal types - int, str, nil, and unit - and three non-terminal
-types  - arrays, records, and names. In Tiger, structurually equivalent records/arrays
-are not necessarily equal. Each expression like 'type intlist = {head : int, tail : intlist}'
-creates a new, unique type. Unique IDs (ints) are used to identify types. Also, NameTypes
-(like 'type count = int') store the ID of the type to which they refer.
-
-   Types are equal if their IDs are equal. Nil is a subtype of every record type.
-
---}
-
-newtype TypeId = TypeId Int deriving (Show, Eq, Ord)
-
-data Type = IntType
-          | StrType
-          | NilType
-          | UnitType
-          | NameType S.Symbol TypeId (Maybe TypeId) -- name, this id, refers to
-          | RecordType [(S.Symbol, Type)] TypeId
-          | ArrayType Type TypeId
-            deriving (Show)
-
-instance Eq Type where
-    t1 == t2 = getTypeId t1 == getTypeId t2
-
-isSubtypeOf NilType (RecordType _ _) = True
-isSubtypeOf t1 t2 = t1 == t2
-
--- this is NOT transitive
-isComparableTo t1 t2 = t1 `isSubtypeOf` t2 || t2 `isSubtypeOf` t1
-
-data TypeError = UndefVar S.Symbol Pos
-               | UndefType S.Symbol Pos
-               | UndefField S.Symbol Pos
-               | CircularType Pos
-               | WrongType Type Type Pos -- expected, actual
-               | WrongArity S.Symbol Int Int Pos -- expected, actual
-               | ExpectedArray Type Pos -- but got
-               | ExpectedRecord S.Symbol Type Pos -- with field, but got
-               | ExpectedFunction S.Symbol Type Pos  -- s of type t is not a function
-               | NotARecord S.Symbol Pos
-               | MultipleDeclarations S.Symbol Pos
-               | EveryoneKnowsFunctionsArentValues S.Symbol Pos
-               | UnconstrainedNil Pos
-               | BreakNotInForWhile Pos
-                 deriving (Eq,Show)
-
-intTypeId = TypeId 0
-strTypeId = TypeId 1
-nilTypeId = TypeId 2
-unitTypeId = TypeId 3
-minTypeId = TypeId 4
-
-getTypeId IntType = intTypeId
-getTypeId StrType = strTypeId
-getTypeId NilType = nilTypeId
-getTypeId UnitType = unitTypeId
-getTypeId (NameType _ id _) = id
-getTypeId (RecordType _ id) = id
-getTypeId (ArrayType _ id) = id
-
-
-mapType :: (Type -> Type) -> Type -> Type
-mapType f t =
-    case t of
-      RecordType fields id -> RecordType (map (fmap f) fields) id
-      ArrayType typ id -> ArrayType (f typ) id
-      other -> other
-
-mapMType :: Monad m => (Type -> m Type) -> Type -> m Type
-mapMType f t =
-    case t of
-      RecordType fields id -> do
-             newFields <- mapM (\(sym, typ) -> f typ >>= return . (,) sym) fields
-             return $ RecordType newFields id
-      ArrayType typ id -> do
-             newElemType <- f typ
-             return $ ArrayType newElemType id
-      other -> return other
-
--- Finds in an environment the non-name type to which a name type ultimately refers.
--- Returns a TypeError if the name type cycles, an UndefType error if some name type
--- refers to nothing.
-resolveNameType :: (MonadError TypeError m) => (Type, Pos) -> Environment -> m Type
-resolveNameType (typ, pos) env =
-    go (Set.insert (getTypeId typ) Set.empty) typ
-    where go cycles typ =
-              case typ of
-                NameType inName _ (Just references) ->
-                    if Set.member references cycles
-                    then throwError $ CircularType pos
-                    else case lookupTypeById references env of
-                           Nothing -> throwError $ UndefType inName pos
-                           Just next -> go (Set.insert references cycles) next
-                NameType inName _ Nothing -> throwError $ UndefType inName pos
-                someType -> return someType
-
-{--  ENVIRONMENTS
-
-  An environment consists of variable and type environments. Types are mapped to
-from both names (S.Symbol) and ids (TypeId). New Non-terminal types are created inside
-of an environment, which assigns them unique IDs.
-
-  Most lookup functions resolve name types.
-
-  A root environment consisting of predefined functions and types can be created with the
-aid of a symbol table.
---}
-
-
-data Environment = Environment {vEnv :: M.Map S.Symbol EnvEntry,
-                                tEnv :: M.Map S.Symbol Type,
-                                idEnv :: M.Map TypeId Type,
-                                nextTypeId :: TypeId}
-                   deriving (Show)
-
-data EnvEntry = VarEntry Type
-              | FunEntry [Type] Type
-                deriving (Show)
-
-traverseEnvEntry :: (Monad m) => (Type -> m Type) -> EnvEntry -> m EnvEntry
-traverseEnvEntry f entry =
-    case entry of
-      VarEntry t -> f t >>= return . VarEntry
-      FunEntry ts t -> do
-                 ts' <- mapM f ts
-                 t' <- f t
-                 return $ FunEntry ts' t'
-
--- resolve name types
-lookupVar :: (MonadError TypeError m) => (S.Symbol, Pos) -> Environment -> m EnvEntry
-lookupVar (sym, pos) env = case M.lookup sym $ vEnv env of
-                    Nothing -> throwError $ UndefVar sym pos
-                    Just envEntry -> traverseEnvEntry
-                                     (\typ -> resolveNameType (typ, pos) env)
-                                     envEntry
-
--- resolve name types
-lookupType :: (MonadError TypeError m) => (S.Symbol, Pos) -> Environment -> m Type
-lookupType (sym, pos) env =
-    case M.lookup sym (tEnv env) of
-      Nothing -> throwError $ UndefType sym pos
-      Just t -> resolveNameType (t, pos) env
-
--- don't resolve name types
-lookupFirstType :: (MonadError TypeError m) => (S.Symbol, Pos) -> Environment -> m Type
-lookupFirstType (sym, pos) env =
-    case M.lookup sym (tEnv env) of
-      Nothing -> throwError $ UndefType sym pos
-      Just t -> return t
-
-lookupTypeById :: TypeId -> Environment -> Maybe Type
-lookupTypeById id env = M.lookup id (idEnv env)
-
-bindVar :: S.Symbol -> Type ->  ST.State Environment ()
-bindVar s t = do
-  env <- ST.get
-  ST.put $ env {vEnv = M.insert s (VarEntry t) (vEnv env)}
-
-bindFun :: S.Symbol -> [Type] -> Type -> ST.State Environment ()
-bindFun s paramTypes retType = do
-  env <- ST.get
-  ST.put $ env {vEnv = M.insert s (FunEntry paramTypes retType) (vEnv env)}
-
-bindType :: S.Symbol -> Type -> ST.State Environment ()
-bindType s t = do
-  env <- ST.get
-  ST.put $ env {tEnv = M.insert s t (tEnv env)}
-
-bindTypeToId :: TypeId -> Type -> ST.State Environment ()
-bindTypeToId id t = do
-  env <- ST.get
-  ST.put $ env {idEnv = M.insert id t (idEnv env)}
-
-incId :: ST.State Environment ()
-incId = do
-  env <- ST.get
-  let (TypeId ltid) = nextTypeId env
-  ST.put $ env {nextTypeId = TypeId $ 1 + ltid}
-
-createNameType :: (Maybe TypeId) -> S.Symbol -> ST.State Environment Type
-createNameType references name = do
-  state <- ST.get
-  let id = nextTypeId state
-      nameType = NameType name id references
-  incId
-  bindTypeToId id nameType
-  bindType name nameType
-  return $ nameType
-
-createArrayType :: Type -> ST.State Environment Type
-createArrayType elemType = do
-  state <- ST.get
-  let id = nextTypeId state
-      arrayType = ArrayType elemType id
-  incId
-  bindTypeToId id arrayType
-  return $ arrayType
-
-createRecordType :: [S.Symbol] -> [Type] -> ST.State Environment Type
-createRecordType fieldNames fieldTypes = do
-  state <- ST.get
-  let id = nextTypeId state
-      recType = RecordType (zip fieldNames fieldTypes) id
-  incId
-  bindTypeToId id recType
-  return $ recType
-
-rootEnv :: ST.State S.SymbolTable Environment
-rootEnv = do
-  let predefinedFuns=  [("print", FunEntry [StrType] UnitType),
-                        ("flush", FunEntry [] UnitType),
-                        ("getchar", FunEntry [] StrType),
-                        ("ord", FunEntry [StrType] IntType),
-                        ("chr", FunEntry [IntType] StrType),
-                        ("size", FunEntry [StrType] IntType),
-                        ("substring", FunEntry [StrType, IntType, IntType] StrType),
-                        ("concat", FunEntry [StrType, StrType] StrType),
-                        ("not", FunEntry [IntType] IntType),
-                        ("exit", FunEntry [IntType] UnitType)]
-  intSym <- S.intern "int"
-  strSym <- S.intern "string"
-  predefinedBySyms <- mapM (\(name, entry) ->
-                                S.intern name >>= (\n -> return (n, entry)))
-                      predefinedFuns
-  return Environment { tEnv = M.fromList [(intSym, IntType), (strSym, StrType)]
-                     , vEnv = M.fromList predefinedBySyms
-                     , idEnv = M.fromList $ map (\t -> (getTypeId t, t))
-                              [IntType, StrType, UnitType, NilType]
-                     , nextTypeId = minTypeId}
 
 {-- ANNOTATION
 
@@ -258,9 +29,6 @@ type TypedVar = Var (Pos,Type) (Pos,Type) Pos (Pos,Type) Pos
 type TypedDec = Dec (Pos,Type) (Pos,Type) Pos (Pos,Type) Pos
 type TypedTy = Ty (Pos,Type)
 type TypedFundec = Fundec (Pos,Type) (Pos,Type) Pos (Pos,Type) Pos
-
-safeLast :: [a] -> Maybe a
-safeLast list = if null list then Nothing else Just $ last list
 
 mustBeA :: (MonadError TypeError m) => (Type, Pos) -> Type -> m Type
 mustBeA (actual,pos) expected =
@@ -457,16 +225,6 @@ annotateVar env (Var (pos, var)) =
                case varType of
                  ArrayType elemType _ -> typedVar pos elemType $ SubscriptVar annVar annExp
                  _ -> throwError $ ExpectedArray varType pos
-
-anyDuplicates :: Ord a => [a] -> Maybe a
-anyDuplicates list =
-    let go list set =
-            case list of
-              [] -> Nothing
-              (x:xs) -> if Set.member x set
-                        then Just x
-                        else go xs $ Set.insert x set
-    in go list Set.empty
 
 annotateDec :: PosDec -> (E.ExceptT TypeError (ST.State Environment)) TypedDec
 annotateDec (Dec (pos, dec)) =

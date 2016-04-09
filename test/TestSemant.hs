@@ -1,14 +1,16 @@
-module Typecheck(tests) where
+module TestSemant(tests) where
 
 import Test.HUnit
 
 import qualified Control.Monad.State.Strict as ST
 import Control.Applicative
 
-import Parse(parse)
-import Lex(tokenize)
-import AST
-import qualified Semant as Semant
+import FrontEnd.Core(lexAndParse)
+import AST.Core
+import AST.Traversal
+import qualified Semant.Core as Semant
+import qualified Semant.Type as Type
+import qualified Symbol as S
 import Debug.Trace(trace)
 
 data ErrorType = UndefVar | UndefType | UndefField | CircularType | WrongType | ExpectedArray
@@ -18,26 +20,25 @@ data ErrorType = UndefVar | UndefType | UndefField | CircularType | WrongType | 
 
 errorIsOfType t err =
     case err of
-      Semant.UndefVar _ _ -> t == UndefVar
-      Semant.UndefType _ _ -> t == UndefType
-      Semant.UndefField _ _ -> t == UndefField
-      Semant.CircularType _ -> t == CircularType
-      Semant.WrongType _ _ _ -> t == WrongType
-      Semant.ExpectedArray _ _ -> t == ExpectedArray
-      Semant.ExpectedRecord _ _ _ -> t == ExpectedRecord
-      Semant.ExpectedFunction _ _ _ -> t == ExpectedFunction
-      Semant.NotARecord _ _ -> t == NotARecord
-      Semant.WrongArity _ _ _ _ -> t == WrongArity
-      Semant.MultipleDeclarations _ _ -> t == MultipleDeclarations
-      Semant.EveryoneKnowsFunctionsArentValues _ _ -> t == EveryoneKnowsFunctionsArentValues
-      Semant.UnconstrainedNil _ -> t == UnconstrainedNil
-      Semant.BreakNotInForWhile _ -> t == BreakNotInForWhile
+      Type.UndefVar _ _ -> t == UndefVar
+      Type.UndefType _ _ -> t == UndefType
+      Type.UndefField _ _ -> t == UndefField
+      Type.CircularType _ -> t == CircularType
+      Type.WrongType _ _ _ -> t == WrongType
+      Type.ExpectedArray _ _ -> t == ExpectedArray
+      Type.ExpectedRecord _ _ _ -> t == ExpectedRecord
+      Type.ExpectedFunction _ _ _ -> t == ExpectedFunction
+      Type.NotARecord _ _ -> t == NotARecord
+      Type.WrongArity _ _ _ _ -> t == WrongArity
+      Type.MultipleDeclarations _ _ -> t == MultipleDeclarations
+      Type.EveryoneKnowsFunctionsArentValues _ _ -> t == EveryoneKnowsFunctionsArentValues
+      Type.UnconstrainedNil _ -> t == UnconstrainedNil
+      Type.BreakNotInForWhile _ -> t == BreakNotInForWhile
 
 printTypecheckedAST = False
 
 typecheck str =
-  let (symTab, tokens) = tokenize str
-      ast = parse tokens
+  let (ast, symTab) = ST.runState (lexAndParse str) S.empty
       (env, symTab') = ST.runState Semant.rootEnv symTab
       result = Semant.analyze env ast
   in if printTypecheckedAST
@@ -60,19 +61,19 @@ assertType predMsgs  typechecked =
 
 isAnArrayOf elemType (Exp ((_, t), _)) =
     case t of
-      Semant.ArrayType inner _ -> inner == elemType
+      Type.ArrayType inner _ -> inner == elemType
       _ -> False
 
 isARecordOf elemTypes (Exp ((_, t), _)) =
     case t of
-      Semant.RecordType fields _ -> and $ zipWith Semant.isSubtypeOf elemTypes (map snd fields)
+      Type.RecordType fields _ -> and $ zipWith Type.isSubtypeOf elemTypes (map snd fields)
       _ -> False
 
 isARecursiveRecord (Exp ((_, t), _)) =
     case t of
-      Semant.RecordType fields id -> any (\typ -> case typ of
-                                                    Semant.NameType _ _ (Just ref) -> ref == id
-                                                    Semant.RecordType _ rid -> rid == id
+      Type.RecordType fields id -> any (\typ -> case typ of
+                                                    Type.NameType _ _ (Just ref) -> ref == id
+                                                    Type.RecordType _ rid -> rid == id
                                                     _ -> False)
                                      (map snd fields)
       _ -> False
@@ -81,32 +82,32 @@ isSimply typ (Exp ((_, t), _)) = typ == t
 
 testTypeDecs =
     test ["test1.tig : array type and variable" ~:
-           assertType [(isAnArrayOf Semant.IntType, "is an array of ints")]
+           assertType [(isAnArrayOf Type.IntType, "is an array of ints")]
                           <$> (typecheckTestCase "test1.tig")
          ,
            "test2.tig : type Y can be used interchangeably with type X if type X = Y" ~:
-           assertType [(isAnArrayOf Semant.IntType, "myint should be equivalent to int")]
+           assertType [(isAnArrayOf Type.IntType, "myint should be equivalent to int")]
                           <$> (typecheckTestCase "test2.tig")
          ,
            "test3.tig : Assigning to non-recursive records" ~:
-           assertType [(isARecordOf [Semant.StrType, Semant.IntType], "record of str, int")]
+           assertType [(isARecordOf [Type.StrType, Type.IntType], "record of str, int")]
                           <$> (typecheckTestCase "test3.tig")
          ,
            "test4.tig : Recursive factorial function" ~:
-           assertType [(isSimply Semant.IntType, "return type of recursive function is int")]
+           assertType [(isSimply Type.IntType, "return type of recursive function is int")]
                           <$> (typecheckTestCase "test4.tig")
          ,
            "test5.tig : mutually recursive types" ~:
-           assertType [(isARecordOf [Semant.IntType, Semant.NilType], "int and itself (or nil)"),
+           assertType [(isARecordOf [Type.IntType, Type.NilType], "int and itself (or nil)"),
                        (isARecursiveRecord, "recursive record")]
                           <$> (typecheckTestCase "test5.tig")
          ,
            "test6.tig : mutually recursive procedures" ~:
-           assertType [(isSimply Semant.UnitType, "neither procedure produces a result")]
+           assertType [(isSimply Type.UnitType, "neither procedure produces a result")]
                           <$> (typecheckTestCase "test6.tig")
          ,
            "test7.tig : mutually recursive functions" ~:
-           assertType [(isSimply Semant.IntType, "return value of called function")]
+           assertType [(isSimply Type.IntType, "return value of called function")]
                           <$> (typecheckTestCase "test7.tig")
          ,
            "test16.tig : type cycle" ~:
@@ -131,7 +132,7 @@ testTypeDecs =
           assertError WrongType <$> (typecheckTestCase "test29.tig")
          ,
           "test30.tig : type synonyms are fine" ~:
-          assertType [(isSimply Semant.IntType, "arr1[n] is elem type")]
+          assertType [(isSimply Type.IntType, "arr1[n] is elem type")]
                          <$> (typecheckTestCase "test30.tig")
          ,
           "test31.tig : var's type constraint and type of init value differ" ~:
@@ -144,7 +145,7 @@ testTypeDecs =
           assertError UndefType <$> (typecheckTestCase "test33.tig")
          ,
           "test37.tig : variables can be shadowed" ~:
-           assertType [(isSimply Semant.IntType, "everything is okay")]
+           assertType [(isSimply Type.IntType, "everything is okay")]
                           <$> (typecheckTestCase "test37.tig")
          ,
           "test38.tig : multiple declarations of type in same block" ~:
@@ -157,22 +158,22 @@ testTypeDecs =
           assertError WrongType <$> (typecheckTestCase "test40.tig")
          ,
           "test41.tig : local type shadows global type" ~:
-          assertType [(isSimply Semant.IntType, "a is shadowed")]
+          assertType [(isSimply Type.IntType, "a is shadowed")]
                          <$> (typecheckTestCase "test41.tig")
          ,
           "test47.tig : types can shadow types in different blocks" ~:
-          assertType [(isSimply Semant.IntType, "shadowing happens")]
+          assertType [(isSimply Type.IntType, "shadowing happens")]
                          <$> (typecheckTestCase "test47.tig")
          ,
           "test48.tig : functions can shadow functions in different blocks" ~:
-          assertType [(isSimply Semant.IntType, "shadowing happens")]
+          assertType [(isSimply Type.IntType, "shadowing happens")]
                          <$> (typecheckTestCase "test48.tig")
 
          ]
 
 testExps =
     test [ "test8.tig : correct if" ~:
-           assertType [(isSimply Semant.IntType, "type of each branch")]
+           assertType [(isSimply Type.IntType, "type of each branch")]
                           <$> (typecheckTestCase "test8.tig")
          ,
           "test9.tig : branches of if differ" ~:
@@ -185,7 +186,7 @@ testExps =
           assertError WrongType <$> (typecheckTestCase "test11.tig")
          ,
           "test12.tig : valid for and let" ~:
-          assertType [(isSimply Semant.UnitType, "for's type is Unit")]
+          assertType [(isSimply Type.UnitType, "for's type is Unit")]
                          <$> (typecheckTestCase "test12.tig")
          ,
            "test13.tig : comparison of incompatible types" ~:
@@ -210,21 +211,21 @@ testExps =
            assertError WrongArity <$> (typecheckTestCase "test36.tig")
          ,
            "test42.tig : correct declarations and assignments etc." ~:
-           assertType [(isSimply Semant.UnitType, "lots of assignment...")]
+           assertType [(isSimply Type.UnitType, "lots of assignment...")]
                           <$> (typecheckTestCase "test42.tig")
          ,
            "test43.tig : can't add unit and number" ~:
            assertError WrongType <$> (typecheckTestCase "test43.tig")
          ,
            "test44.tig : valid nil initialization and assignment" ~:
-           assertType [(isSimply Semant.UnitType, "an assignment")]
+           assertType [(isSimply Type.UnitType, "an assignment")]
                           <$> (typecheckTestCase "test44.tig")
          ,
            "test45.tig : only records can be nil" ~:
            assertError UnconstrainedNil <$> (typecheckTestCase "test45.tig")
          ,
            "test46.tig : records can be compared" ~:
-           assertType [(isSimply Semant.IntType, "ints are bools")]
+           assertType [(isSimply Type.IntType, "ints are bools")]
                           <$> (typecheckTestCase "test46.tig")
          ]
 
@@ -250,7 +251,7 @@ testBreakPlacement =
           assertError BreakNotInForWhile <$> (typecheckTestCase "test51.tig")
          ,
           "test52.tig : properly placed break " ~:
-          assertType [(isSimply Semant.IntType, "everything okay")]
+          assertType [(isSimply Type.IntType, "everything okay")]
                          <$> (typecheckTestCase "test52.tig")
          ]
 

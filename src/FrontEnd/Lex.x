@@ -1,5 +1,5 @@
 {
-module Lex (Token(..), TokenType(..), Pos, tokenize) where
+module FrontEnd.Lex (Token(..), TokenType(..), Pos, tokenize) where
 import qualified Symbol as S
 import Control.Monad.State.Strict
 }
@@ -130,13 +130,13 @@ removeComments nest toks =
                  ((Token EndComment _) : ts) -> removeComments (nest - 1) ts
                  (t : ts) -> if nest > 0 then removeComments nest ts else t : removeComments nest ts
 
-tokenize :: String -> (S.SymbolTable, [Token])
-tokenize s = foldr (\ tok (symbolTable, rest) ->
-                   case tok of
-                     Token (Id str) pos -> let (sym, newTable) = runState (S.intern str) symbolTable
-                                           in (newTable, (Token (SymId sym) pos) : rest)
-                     _ -> (symbolTable, tok : rest))
-        (S.empty, [])
-        (removeComments 0 $ alexScanTokens s)
+tokenize :: String -> State S.SymbolTable [Token]
+tokenize s = mapM (\ tok ->
+                        case tok of
+                             Token (Id str) pos -> do
+                                   id <- S.intern str
+                                   return $ Token (SymId id) pos
+                             _ -> return tok)
+                  (removeComments 0 $ alexScanTokens s)
 
 }
