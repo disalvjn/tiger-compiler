@@ -159,7 +159,7 @@ annotateExp env (Exp (pos, exp)) =
 
       -- Bind sym to an int. Lo and Hi must be ints. Body must be of unit type.
       ForExp sym lo hi body ->
-          let (_, env') = ST.runState (bindVar sym IntType) env
+          let env' = ST.execState (bindVar sym IntType) env
           in do
             annLo@(Exp ((lpos, lType), _)) <- annotateExp env' lo
             annHi@(Exp ((hpos, hType), _)) <- annotateExp env' hi
@@ -322,9 +322,9 @@ funcTypeNamePair env (Fundec (pos, FundecF name params result _)) = do
 annotateFunDec :: MonadError TypeError m =>
                   PosFundec -> [Type] -> Environment -> m (TypedFundec, TypedExp)
 annotateFunDec (Fundec (pos, FundecF name params result body)) paramTypes env = do
-  let (_, envWithParams) = ST.runState (zipWithM (\name typ -> bindVar name typ)
-                                                 (map fieldName params) paramTypes)
-                           env
+  let envWithParams = ST.execState (zipWithM (\name typ -> bindVar name typ)
+                                    (map fieldName params) paramTypes)
+                      env
   annBody <- annotateExp envWithParams body
   return $ (Fundec (pos, FundecF name params result annBody), annBody)
 

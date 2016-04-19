@@ -6,7 +6,7 @@ import qualified Symbol as S
 import qualified Data.Map as M
 import qualified Data.Set as Set
 import qualified CodeGen.Assem as A
-import Data.Maybe(fromJust)
+import Data.Maybe(fromJust, fromMaybe)
 
 type Instr = A.Instr S.Temp S.Label
 type InstrNode = Graph.Node Instr
@@ -72,38 +72,31 @@ data IGraph = IGraph { igraph :: InterferenceGraph
 
 liveness :: FlowGraph -> LivenessMap
 liveness (FlowGraph control def use) =
-  let liveOutAtNode livenessMap node =
+  let liveOutAtNode node = do
         let defs = Set.fromList . fromJust $ M.lookup node def
             uses = Set.fromList . fromJust $ M.lookup node use
             successors = Graph.successors node control
 
             -- live-in[node] = use[n] U (live-out[node] - def[n])
             -- live-out[node] = U live-in[s], s in succ[n]
-
-            loop liveIn liveOut livenessMap =
+            loop (liveIn, liveOut) = do
               let liveIn' = uses `Set.union` (liveOut `Set.difference` defs)
-                  livenessMap' = M.insert node (liveIn', liveOut) livenessMap
-                  livenessMap'' = buildLivenessMap successors livenessMap'
-                  succLiveIns = map (\n -> fst . fromJust $ M.lookup n livenessMap'') successors
-                  liveOut' = foldr Set.union Set.empty succLiveIns
-                  livenessMap''' = M.insert node (liveIn', liveOut') livenessMap''
-              in if liveIn == liveIn' && liveOut == liveOut'
-                 then (liveIn, liveOut, M.insert node (liveIn, liveOut) livenessMap''')
-                 else loop liveIn' liveOut' livenessMap'''
+              ST.modify $ M.insert node (liveIn', liveOut)
+              buildLivenessMap successors
+              succLiveIns <- mapM (ST.gets . (\n -> fst . fromJust . M.lookup n)) successors
+              let liveOut' = Set.unions succLiveIns
+              ST.modify $ M.insert node (liveIn', liveOut')
 
-        in case M.lookup node livenessMap of
-            Just (liveIn, liveOut) -> loop liveIn liveOut livenessMap --(liveIn, liveOut, livenessMap)
-            Nothing -> loop Set.empty Set.empty livenessMap
+              if liveIn == liveIn' && liveOut == liveOut'
+              then return (liveIn, liveOut)
+              else loop (liveIn', liveOut')
 
-      buildLivenessMap nodes livenessMap =
-        foldr (\ node livenessMap ->
-                let (_, _, livenessMap') =
-                      liveOutAtNode livenessMap node
-                in livenessMap')
-        livenessMap
-        nodes
+        init <- ST.gets $ fromMaybe (Set.empty, Set.empty) . M.lookup node
+        loop init
 
-  in buildLivenessMap (Graph.nodes control) M.empty
+      buildLivenessMap = mapM liveOutAtNode
+
+  in ST.execState (buildLivenessMap (Graph.nodes control)) M.empty
 
 
 interference :: FlowGraph -> LivenessMap -> InterferenceGraph
