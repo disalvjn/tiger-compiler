@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Allocation.DirectedGraph(Node, DGraph,
                                 empty, newNode, addNode, newEdge, newBiEdge,
-                                successors, predecessors, nodes, isEdge) where
+                                content, successors, predecessors, nodes, isEdge) where
 import qualified Data.Map as M
 import qualified Data.Set as Set
 import qualified Control.Monad.State.Strict as ST

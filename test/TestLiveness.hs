@@ -5,9 +5,19 @@ import Test.HUnit
 import qualified CodeGen.Assem as A
 import qualified Symbol as S
 import qualified Allocation.Liveness as L
+import qualified Allocation.Core as AC
 import qualified Control.Monad.State.Strict as ST
+import qualified Allocation.DirectedGraph as Graph
 import qualified Data.Set as Set
 import qualified Data.Map as M
+
+build instrs = do
+  let flowGraph = L.flowGraph instrs
+      livenessMap = L.liveness flowGraph
+  AC.build flowGraph livenessMap
+  igraph <- ST.gets AC._iGraph
+  return (igraph, livenessMap)
+
 
 {-- This is an example based on Appel p230 (graph 11.1)
   It differs because Appel assumes k,j are live going into the block
@@ -33,14 +43,14 @@ testIG1 = do
                , (A.Oper (A.ADDI k' m' 4) [m'] [k'] Nothing, (s [m',b'], s [b']))
                , (A.Oper (A.MOVE j' b') [b'] [j'] Nothing, (s [b'], s []))
                ]
-      (igraph, livenessMap) = L.buildIGraph (map fst instrs)
+      (igraph, livenessMap) = ST.evalState (build (map fst instrs)) AC.emptyRAState
 
       interferes (t1, n1) does doesnt = do
         mapM_ (\(t2, n2) -> assertBool ("error: expected " ++ n1 ++  " to interfere w/ " ++ n2)
-                            (L.interferes t1 t2 igraph))
+                            (Graph.isEdge t1 t2 igraph))
           does
         mapM_ (\(t2, n2) -> assertBool ("error: expected " ++ n1 ++  " to not interfere w/ " ++ n2)
-                            (not (L.interferes t1 t2 igraph)))
+                            (not (Graph.isEdge t1 t2 igraph)))
           doesnt
 
   assertBool "You got your live-ins and live-outs wrong!" $ (map snd instrs) == (M.elems livenessMap)

@@ -22,7 +22,7 @@ library
                      , Translate.Core, Translate.Tree, Translate.Frame, Translate.Canon
                      , Translate.UniqueIds, Translate.Access
                      , CodeGen.Assem, CodeGen.MipsGen
-                     , Allocation.Liveness, Allocation.DirectedGraph
+                     , Allocation.Liveness, Allocation.DirectedGraph, Allocation.Core
   build-depends:       base >= 4.7 && < 5
                      , array
                      , mtl

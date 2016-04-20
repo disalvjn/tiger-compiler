@@ -25,6 +25,9 @@ data Instr temp label = Oper (Assem temp label) [temp] [temp] (Maybe [label]) --
                       | Label label
                       deriving (Show)
 
+isMove (Oper (MOVE _ _) _ _ _) = True
+isMove _ = False
+
 sourceRegs :: Instr temp label -> [temp]
 sourceRegs (Oper _ src _ _) = src
 sourceRegs _ = []
