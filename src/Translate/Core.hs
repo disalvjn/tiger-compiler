@@ -59,15 +59,15 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
         recurIntoExp = translateIntoExp access frame breakTo
     in case exp of
       VarExp var -> translateVar access frame breakTo var
-      NilExp -> return $ Tr.Ex $ Tr.Const 0
-      IntExp i -> return $ Tr.Ex $ Tr.Const i
+      NilExp -> return . Tr.Ex $ Tr.Const 0
+      IntExp i -> return . Tr.Ex $ Tr.Const i
 
       StringExp s -> do
                -- Create a new label for the string and a fragment specifying
                -- that the string is to be defined at that label. Return the label.
                label <- liftState S.genLabel
-               RWS.tell $ frag $ Fr.StringFrag label s
-               return $ Tr.Ex . Tr.Name $ label
+               RWS.tell . frag $ Fr.StringFrag label s
+               return . Tr.Ex . Tr.Name $ label
 
       CallExp fun args -> do
                -- Straightforward mapping to Tr.Call except
@@ -80,12 +80,12 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                    let funLabel = Fr.frameName funFrame
                        funParentLabel = Fr.parentFrame funFrame
                        staticLink = createStaticLink access framePtr funParentLabel frame
-                   in return $ Tr.Ex $ Tr.Call (Tr.Name funLabel) (staticLink : args')
+                   in return . Tr.Ex $ Tr.Call (Tr.Name funLabel) (staticLink : args')
 
                  -- The function wasn't user defined, and is therefore a runtime fn :
                  Nothing -> do
                             Just funLabel <- RWS.asks (M.lookup fun . runTimeFunctions)
-                            return $ Tr.Ex $ Tr.Call (Tr.Name funLabel) args'
+                            return . Tr.Ex $ Tr.Call (Tr.Name funLabel) args'
 
       OpExp left@(Exp ((_, compType), _)) op right -> do
                leftTrans <- recurIntoExp left
@@ -148,7 +148,7 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                    allocStm = Tr.Move temp callMalloc
                    inits = createInitStatements transInitExps 0
                    allocAndInit = Tr.Seq allocStm inits
-               return $ Tr.Ex $ Tr.Eseq allocAndInit temp
+               return . Tr.Ex $ Tr.Eseq allocAndInit temp
 
       ArrayExp _ size init -> do
                {-- translate size and init. Call a runtime function. --}
@@ -162,7 +162,7 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                -- their results, then execute the nth exp and return its result.
                -- If there are 0 exps, return 0.
                exps' <- mapM recurIntoExp exps
-               return $ Tr.Ex . intoESeqExp $ exps'
+               return . Tr.Ex . intoESeqExp $ exps'
           where intoESeqExp exps =
                     case exps of
                       [] -> Tr.Const 0
@@ -172,11 +172,11 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
       AssignExp lvalue rvalue -> do
                transL <- translateVarIntoExp access frame breakTo lvalue
                transR <- recurIntoExp rvalue
-               return $ Tr.Nx $ Tr.Move transL transR
+               return . Tr.Nx $ Tr.Move transL transR
 
       WhileExp testExp bodyExp -> do
                {-- test : if not(testExp) then goto body else goto done
-                 body : bodyExp
+                 body : bodyExp; goto test
                  done : <nothing> --}
                -- Look at that perfect '<-' alignment. I didn't even have to use
                -- M-x align-regexp. It is hard not to see this as some sort of sign...
@@ -188,19 +188,20 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                transBody <- translateExp access frame (Just doneLabel) bodyExp >>= asStm
                let test = Tr.Seq (Tr.Label testLabel)
                           $ Tr.CJump Tr.Lt transTest (Tr.Const 1) doneLabel bodyLabel
-                   body = Tr.Seq (Tr.Label bodyLabel) transBody
+                   body = Tr.Seq (Tr.Label bodyLabel)
+                          $ Tr.Seq transBody (Tr.Jump (Tr.Name testLabel) [testLabel])
                    done = Tr.Label doneLabel
-               return $ Tr.Nx $ Tr.Seq test (Tr.Seq body done)
+               return . Tr.Nx $ Tr.Seq test (Tr.Seq body done)
 
       -- ForExp should never happen -- desugar must be run before translation
 
       BreakExp -> let (Just breakToLabel) = breakTo -- Semant verifies every break is inside loop
-                  in return $ Tr.Nx $ Tr.Jump (Tr.Name breakToLabel) [breakToLabel]
+                  in return . Tr.Nx $ Tr.Jump (Tr.Name breakToLabel) [breakToLabel]
 
       IfExp pred conseq alt -> do
                tpred       <- liftM Tr.asCx $ recur pred
                tconseq     <- recur pred
-               talt        <- maybe (return . Tr.Nx $ Tr.ExpStm $ Tr.Const 0) recur alt
+               talt        <- maybe (return . Tr.Nx . Tr.ExpStm $ Tr.Const 0) recur alt
                conseqLabel <- liftState S.genLabel
                altLabel    <- liftState S.genLabel
                joinLabel   <- liftState S.genLabel
@@ -230,13 +231,13 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                                $ Tr.Seq conseqBranch
                                $ Tr.Seq (Tr.Label altLabel) altBranch
                    join = Tr.Eseq (Tr.Label joinLabel) result
-               return $ Tr.Ex $ Tr.Eseq branchEtc join
+               return . Tr.Ex $ Tr.Eseq branchEtc join
 
       LetExp decs body -> do
                   varInits <- liftM (Tr.seqStm . catMaybes)
                               $ mapM (translateDec access frame breakTo) decs
                   transBody <- recurIntoExp body
-                  return $ Tr.Ex $ Tr.Eseq varInits transBody
+                  return . Tr.Ex $ Tr.Eseq varInits transBody
 
 
 
@@ -265,7 +266,7 @@ translateFunDec access breakTo (Fundec (_, FundecF name params _ body)) = do
   transBody <- translateExp access frame breakTo body >>= asExp
   let bodyWithReturn = Tr.Move returnReg transBody
       bodyWithViewShift = Fr.viewShift frame bodyWithReturn
-  RWS.tell $ frag $ Fr.ProcFrag bodyWithViewShift frame
+  RWS.tell . frag $ Fr.ProcFrag bodyWithViewShift frame
   return ()
 
 translateVar :: AccessMap -> Fr.Frame -> Maybe S.Label -> Semant.TypedVar -> TranslateResults
@@ -275,12 +276,12 @@ translateVar access frame breakTo (Var ((_, varType), var)) =
           let VarAccess acc varParent varParLabel = varAccess sym access
           in case acc of
                -- If a simple var doesn't escape, it's in some temp register.
-               Fr.InReg reg -> return $ Tr.Ex . Tr.Temp $ reg
+               Fr.InReg reg -> return . Tr.Ex . Tr.Temp $ reg
                -- Otherwise, it's stored in memory, and we need to chase static links to find it.
                Fr.InFrame offset -> do
                         framePtr <- RWS.asks framePtr
                         let fp = createStaticLink access framePtr varParLabel frame
-                        return $ Tr.Ex . Tr.Mem $ Tr.Binop Tr.Plus (Tr.Const offset) fp
+                        return . Tr.Ex . Tr.Mem $ Tr.Binop Tr.Plus (Tr.Const offset) fp
       FieldVar ofVar sym -> do
                -- a.f is at Mem(+(Mem a [1], wordSize * offset(f) [2])) since
                -- [1] all records are stored on the heap and
@@ -288,7 +289,7 @@ translateVar access frame breakTo (Var ((_, varType), var)) =
                ofVarTrans <- translateVar access frame breakTo ofVar >>= asExp
                let Var ((_, (Type.RecordType fields _)), _) = ofVar
                    Just offset = Data.List.elemIndex sym $ map fst fields
-               return $ Tr.Ex $ Tr.Mem
+               return . Tr.Ex . Tr.Mem
                           $ Tr.Binop Tr.Plus (Tr.Mem ofVarTrans)
                           $ Tr.Const (Fr.wordSize * offset)
 
@@ -297,7 +298,7 @@ translateVar access frame breakTo (Var ((_, varType), var)) =
                subExpTrans <- translateIntoExp access frame breakTo subExp
                -- for a[i], a is a pointer to the base address of an array.
                -- Therefore a[i] = Mem(+(Mem a, *(i, Const wordSize)))
-               return $ Tr.Ex $ Tr.Mem
+               return . Tr.Ex . Tr.Mem
                           $ Tr.Binop Tr.Plus (Tr.Mem ofVarTrans)
                           $ Tr.Binop Tr.Mul subExpTrans (Tr.Const Fr.wordSize)
 
