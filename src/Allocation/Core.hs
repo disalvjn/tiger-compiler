@@ -1,7 +1,12 @@
+-- TO DO :
+--   Rewrite program
+--   More efficient work list representations
+--   Spill priorities / spill heuristic
+
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module Allocation.Core (RAState(..), emptyRAState, build
+module Allocation.Core (RAState(..), emptyRAState, build, allocateRegisters
                        , InterferenceGraph) where
 import Control.Lens
 import Allocation.Liveness
@@ -11,17 +16,25 @@ import qualified Data.Set as Set
 import qualified Symbol as S
 import qualified Data.Map as M
 import qualified Control.Monad.State.Strict as ST
-import Data.Maybe(fromJust, fromMaybe)
+import Data.Maybe(fromJust, fromMaybe, catMaybes, isJust)
 import Control.Monad(forM_, when)
 import Util
+import Debug.Trace(trace)
 
-newtype Color = Color Int deriving (Ord, Eq, Show)
+type Color = Int
+type Instr = A.Instr S.Temp S.Label
 
 data WorkList = Precolored | Initial | Simplify | Freeze | PotSpilled | ActSpilled
               | CoalescedWL | Colored | Select
-              deriving (Eq)
+              deriving (Show, Eq)
 type WorkSet = Set.Set S.Temp
 
+data MoveList = Coalesced | Constrained | Frozen | WorkList | Active
+              deriving (Show, Eq)
+
+type Move = (S.Temp, S.Temp)
+type MoveSet = Set.Set (S.Temp, S.Temp)
+type InterferenceGraph = Graph.DGraph S.Temp
 
 -- Mutually disjoint. Every temp is in exactly one.
 data WorkSets = WorkSets { _precolored :: WorkSet -- machine registers
@@ -45,15 +58,7 @@ data WorkSets = WorkSets { _precolored :: WorkSet -- machine registers
                              -- which worklist is each node a part of?
                            , _nodeMembership :: M.Map S.Temp WorkList}
 
-
 -- mutually disjoint. Every move is in exactly one.
-data MoveList = Coalesced | Constrained | Frozen | WorkList | Active
-              deriving (Eq)
-
-type Move = (S.Temp, S.Temp)
-type MoveSet = Set.Set (S.Temp, S.Temp)
-type InterferenceGraph = Graph.DGraph S.Temp
-
 data MoveSets = MoveSets { _coalescedMoves :: MoveSet
                            -- source and target interfere; impossible to coalesce
                          , _constrainedMoves :: MoveSet
@@ -104,12 +109,22 @@ fromMoveList Frozen = moveSets . frozenMoves
 fromMoveList Constrained = moveSets . constrainedMoves
 fromMoveList Coalesced = moveSets . coalescedMoves
 
+lg msg = when (trace msg True) $ return ()
+
 addToWL :: S.Temp -> WorkList -> ST.State RAState ()
 addToWL temp wl = do
+  lg ("Adding " ++ (show temp) ++ " to worklist " ++ (show wl))
   memberOf <- ST.gets $ M.lookup temp . _nodeMembership . _workLists
   whenJust memberOf (\ wl -> (fromWorkList wl) %= Set.delete temp)
   workLists . nodeMembership %= M.insert temp wl
   (fromWorkList wl) %= Set.insert temp
+
+popWL :: WorkList -> ST.State RAState S.Temp
+popWL wl = do
+  work <- use $ fromWorkList wl
+  let (elem, set) = Set.deleteFindMin work
+  fromWorkList wl .= set
+  return elem
 
 addToML :: Move -> MoveList -> ST.State RAState ()
 addToML move ml = do
@@ -118,34 +133,59 @@ addToML move ml = do
   moveSets . moveMembership %= M.insert move ml
   (fromMoveList ml) %= Set.insert move
 
-
-
---isPrecolored u = ST.gets $ Set.member u .  _precolored . _workLists
 update f default' = M.alter (Just . maybe default' f)
-getDegree temp = ST.gets $ fromMaybe 0 . M.lookup temp . _degree
 
-isMoveRelated temp = fmap (not . Set.null) . nodeMoves $ temp
-isActiveMove temp = ST.gets $ (== Active) . fromMaybe WorkList
-                    . M.lookup temp . _moveMembership . _moveSets
+isPrecolored :: S.Temp -> RAState -> Bool
+isPrecolored u = Set.member u .  _precolored . _workLists
+
+getDegree :: S.Temp -> RAState -> Int
+getDegree temp state =  fromMaybe 0 . M.lookup temp . _degree $ state
+
+isMoveRelated :: S.Temp -> RAState -> Bool
+isMoveRelated temp state = (not . Set.null) . nodeMoves temp $ state
+
+isActiveMove :: Move -> RAState -> Bool
+isActiveMove temp state = (== Active) . fromMaybe WorkList
+                          . M.lookup temp . _moveMembership . _moveSets $ state
+
+isFreeze :: S.Temp -> RAState -> Bool
+isFreeze temp = Set.member temp . _freezeWorklist . _workLists
+
+interferes :: Move -> RAState -> Bool
+interferes (u, v) = Graph.isEdge u v . _iGraph
 
 -- Get every move related to a temp that is either
 -- currently being considered for coalescing or could be in the future.
-nodeMoves :: S.Temp -> ST.State RAState MoveSet
-nodeMoves temp = do
-  movesForTemp <- ST.gets $ fromMaybe Set.empty . M.lookup temp . _tempMoves
-  actives <- ST.gets $  _activeMoves . _moveSets
-  worklists <- ST.gets $  _worklistMoves . _moveSets
-  return $ movesForTemp `Set.union` (actives `Set.intersection` worklists)
+nodeMoves :: S.Temp -> RAState -> MoveSet
+nodeMoves temp state =
+  let movesForTemp = fromMaybe Set.empty . M.lookup temp . _tempMoves $ state
+      actives =  _activeMoves . _moveSets $ state
+      worklists =  _worklistMoves . _moveSets $ state
+  in movesForTemp `Set.union` (actives `Set.intersection` worklists)
+
+getAlias :: S.Temp -> RAState -> S.Temp
+getAlias temp state =
+  if Set.member temp . _coalescedNodes . _workLists $ state
+  then getAlias (fromJust . M.lookup temp . _alias $ state) state
+  else temp
+
+allAdjacent :: S.Temp -> RAState -> Set.Set S.Temp
+-- The graph is assumed to be constructed so that it simulates un-directedness
+allAdjacent temp state =
+  let succ = Set.fromList . Graph.successors temp . _iGraph $ state
+      pred = Set.fromList . Graph.predecessors temp . _iGraph $ state
+  in succ `Set.union` pred
 
 -- Every node that's neither coalesced nor selected adjacent to another
-adjacent :: S.Temp -> ST.State RAState (Set.Set S.Temp)
-adjacent temp = do
-  -- The graph is assumed to be constructed so that it simulates un-directedness
-  allAdj <- ST.gets $ Set.fromList . Graph.successors temp . _iGraph
-  selected <- ST.gets $ _selectedStack . _workLists
-  coalesced <- ST.gets $ _coalescedNodes . _workLists
-  return $ allAdj `Set.difference` (selected `Set.union` coalesced)
+adjacent :: S.Temp -> RAState -> Set.Set S.Temp
+adjacent temp state =
+  let allAdj = allAdjacent temp state
+      selected = _selectedStack . _workLists $ state
+      coalesced =  _coalescedNodes . _workLists $ state
+  in allAdj `Set.difference` (selected `Set.union` coalesced)
 
+colorOf :: S.Temp -> RAState -> Maybe Color
+colorOf temp state = M.lookup temp . _color $ state
 
 doTo :: (s -> b) -> (b -> ST.State s ()) -> ST.State s ()
 doTo accessor action = ST.gets accessor >>= action
@@ -153,7 +193,45 @@ doTo accessor action = ST.gets accessor >>= action
 -- the '$' stands for 'state'
 (%=$) x y = x %= ST.execState y
 
---allocateRegisters :: FlowGraph -> LivenessMap -> M.Map S.Temp Color
+
+allocateRegisters :: Int -> M.Map S.Temp Color -> [Instr]
+                  -> ST.State S.SymbolTable (M.Map S.Temp Color)
+allocateRegisters k precolored program =
+  let flowgraph = flowGraph program
+      livenessMap = liveness flowgraph
+
+      loop = do
+        doSimplify <- ST.gets $ not . Set.null . _simplifyWorklist . _workLists
+        doCoalesce <- ST.gets $ not . Set.null . _worklistMoves . _moveSets
+        doFreeze <- ST.gets $ not . Set.null . _freezeWorklist . _workLists
+        doSpill <- ST.gets $ not . Set.null . _spilledWorklist . _workLists
+        if doSimplify then simplify k >> loop
+          else if doCoalesce then coalesce k >> loop
+               else if doFreeze then freeze k >> loop
+                    else if doSpill then selectSpill k >> loop else return ()
+
+      go = do
+        build precolored flowgraph livenessMap
+        makeWorkLists k
+        loop
+        assignColors k
+        ST.gets $ _spilledNodes . _workLists
+
+      run =
+        let (spilledNodes, raState) = ST.runState go emptyRAState
+        in if Set.null spilledNodes
+           then return $ _color raState
+           else rewriteProgram spilledNodes program >>= allocateRegisters k precolored
+
+  in run
+
+
+-- to-do optimization : don't represent precolored nodes in adjacency list representation.
+-- Post-conditions: degrees of u,v incremented. obviously the edge.
+addEdge (u, v) =
+    when (u /= v) $ do iGraph %=$ Graph.newBiEdge u v
+                       degree %= update succ 0 u
+                       degree %= update succ 0 v
 
 -- Pre-conditions : None
 -- Post-conditions :
@@ -162,14 +240,11 @@ doTo accessor action = ST.gets accessor >>= action
 --     3) _moveSets . _worklistMoves is complete
 --     4) tempMoves is complete
 --     5) _workLists . _initial contains every temp
-build :: FlowGraph -> LivenessMap -> ST.State RAState ()
-build (FlowGraph control def use) liveness =
-  -- to-do optimization : don't represent precolored nodes in adjacency list representation.
-  -- Post-conditions: degrees of u,v incremented. obviously the edge.
-  let addEdge (u, v) =
-        when (u /= v) $ do iGraph %=$ Graph.newBiEdge u v
-                           degree %= update succ 0 u
-                           degree %= update succ 0 v
+build :: M.Map S.Temp Color -> FlowGraph -> LivenessMap -> ST.State RAState ()
+build precolored (FlowGraph control def use) liveness =
+  let buildPrecolored = do
+        color .= precolored
+        forM_ (M.keys precolored) (\t -> addToWL t Precolored)
 
       buildForNode node = do
         let defs = fromJust $ M.lookup node def
@@ -192,7 +267,7 @@ build (FlowGraph control def use) liveness =
           _ -> forM_ edges addEdge
 
 
-  in mapM_ buildForNode (Graph.nodes control)
+  in buildPrecolored >> mapM_ buildForNode (Graph.nodes control)
 
 -- Preconditions:
 --    1) It's known whether every temp is move related.
@@ -211,9 +286,9 @@ build (FlowGraph control def use) liveness =
 makeWorkLists :: Int -> ST.State RAState ()
 makeWorkLists k =
   let decideTemp temp = do
-        deg <- getDegree temp
-        moveRelated <- isMoveRelated temp
-        let workList = if deg >= k then PotSpilled else if moveRelated then Freeze else Simplify
+        state <- ST.get
+        let (deg, moveRelated) = (getDegree temp state, isMoveRelated temp state)
+            workList = if deg >= k then PotSpilled else if moveRelated then Freeze else Simplify
         addToWL temp workList
   in doTo (_initial . _workLists) (mapM_ decideTemp)
 
@@ -227,24 +302,163 @@ simplify k =
         -- Since we (conceptually) remove the node from the graph, we need to decrement
         -- the degrees of its neighbors.
         addToWL temp Select
-        adjacent temp >>= mapM_ decrementDegree
-
-      decrementDegree temp = do
-        deg <- fmap pred $ getDegree temp
-        degree %= M.insert temp deg
-        -- if the new degree is < k, then we can consider the node for simplifying/coalescing
-        when (deg < k) $ unspill temp
-
-      unspill temp = do
-        adjacent temp >>= mapM_ enableMove
-        moveRelated <- isMoveRelated temp
-        let wl = if moveRelated then Freeze else Simplify
-        addToWL temp wl
-
-      enableMove temp = do
-        moves <- nodeMoves temp
-        forM_ moves $ \m -> do
-          activeMove <- isActiveMove m
-          when activeMove (addToML m WorkList)
+        ST.gets (adjacent temp) >>= mapM_ (decrementDegree k)
 
   in doTo (_simplifyWorklist . _workLists) (mapM_ simplifyTemp)
+
+enableMove :: S.Temp -> ST.State RAState ()
+enableMove temp = do
+  moves <- ST.gets $ nodeMoves temp
+  forM_ moves $ \m -> do
+    activeMove <- ST.gets $ isActiveMove m
+    when activeMove (addToML m WorkList)
+
+decrementDegree :: Int -> S.Temp -> ST.State RAState ()
+decrementDegree k temp = do
+  deg <- fmap pred . ST.gets $ getDegree temp
+  degree %= M.insert temp deg
+  -- if the new degree is < k, then we can consider the node for simplifying/coalescing
+  when (deg < k) $ unspill temp
+    where unspill temp = do
+            ST.gets (adjacent temp) >>= mapM_ enableMove
+            moveRelated <- ST.gets $ isMoveRelated temp
+            let wl = if moveRelated then Freeze else Simplify
+            addToWL temp wl
+
+coalesce :: Int -> ST.State RAState ()
+coalesce k =
+  let coalesceMove m@(x', y') = do
+        state <- ST.get
+        let (x, y) =  (getAlias x' state, getAlias y' state)
+        -- [1] v precolored -> u precolored
+        let (u, v) = if isPrecolored y state then (y, x) else (x, y)
+        determine m (u, v) state
+
+      determine move (u, v) state
+      -- if u == v, then the move can be trivially coalesced. Then consider simplifying u.
+        | u == v =
+          addToML move Coalesced >> consider u
+
+      -- if v is precolored, then u is precolored, so u,v interfere (see [1])
+      -- if u,v interfere, then they cannot be coalesced, and the move is constrained.
+      -- consider both u,v for simplification.
+        | isPrecolored v state || interferes (u, v) state =
+          addToML move Constrained >> consider u >> consider v
+
+      -- If u and v can be coalesced according to either the George or Briggs heuristic
+      -- (George is used on precolored to prevent looking at the precolored's huge adj list)
+      -- then combine u,v and consider u for simplification.
+        | (isPrecolored u state && georgeCoalesceHeuristic u v state)
+          || ((not $ isPrecolored u state) && briggsCoalesceHeuristic u v state) =
+            addToML move Coalesced >> combine (u, v) >> consider u
+
+      -- maybe we can coalesce it in the future
+        | otherwise = addToML move Active
+
+      -- Add a node to the Simplify worklist if it's not precolored, isn't move related, and of
+      -- insignificant degree.
+      consider u = do
+        st <- ST.get
+        when ((not $ isPrecolored u st) && (not $ isMoveRelated u st) && (getDegree u st < k))
+          $ addToWL u Simplify
+
+      combine (u, v) = do
+        lg $ "Combining: " ++ (show u) ++ " and " ++ (show v)
+        addToWL v CoalescedWL
+        alias %= M.insert v u
+        -- every move associated with v becomes associated with u
+        uMoves <- ST.gets $ fromMaybe Set.empty . M.lookup u . _tempMoves
+        vMoves <- ST.gets $ fromMaybe Set.empty . M.lookup v . _tempMoves
+        tempMoves %= M.insert u (uMoves `Set.union` vMoves)
+        -- every active move associated with v is put in the worklist for coalescing
+        enableMove v
+        -- every neighbor of v becomes a neighbor of u
+        vNeighbors <- ST.gets $ allAdjacent v --adjacent v
+        forM_ vNeighbors $ \t -> addEdge (t, u) >> decrementDegree k t
+        -- if u is of significant degree and frozen, it becomes a potential spill
+        uDeg <- ST.gets $ getDegree u
+        uIsFreeze <- ST.gets $ isFreeze u
+        when (uDeg >= k && uIsFreeze) $ addToWL u PotSpilled
+
+      -- u, v can be safely coalesced if every neighbor of v is either of insignificant degree,
+      -- precolored, or already interferes with u.
+      georgeCoalesceHeuristic u v state =
+        let okay t = getDegree t state < k || isPrecolored t state || interferes (t, u) state
+        in all okay $ adjacent v state
+
+      -- u,v can be safely coalesced if the coalesced node uv has less than k neighbors with
+      -- significant degree. Why? After simplification, uv will have only those neighbors of
+      -- insignificant degree, which will allow it to be simplified. Once uv has been simplified,
+      -- the new graph is equivalent to the simplified old graph.
+      briggsCoalesceHeuristic u v state =
+        let nodes = adjacent u state `Set.union` adjacent v state
+            notOkay t = getDegree t state >= k
+        in (Set.size $ Set.filter notOkay nodes) < k
+
+  in doTo (_worklistMoves . _moveSets) (mapM_ coalesceMove)
+
+freeze :: Int -> ST.State RAState ()
+freeze k = do
+  u <- popWL Freeze
+  addToWL u Simplify
+  freezeMoves k u
+
+-- Add every move related to u to the frozen worklist. For every temp that is now
+-- no longer move related and of insignificant degree, add it to the simplify worklist.
+freezeMoves :: Int -> S.Temp -> ST.State RAState ()
+freezeMoves k u =
+  let freezeMove m@(x', y') = do
+        state <- ST.get
+        let yAlias = getAlias y' state
+            -- v == u only if the move is u <- u
+            -- if the move is u <- a or a <- u, v = a, for some a /= u.
+            v = if yAlias == getAlias u state then getAlias x' state else yAlias
+        addToML m Frozen
+        -- Now that we've removed a move from v, it's possible that it's no longer move related.
+        -- if it' snot, and if it's of insignificant degree, add it to the simplify list.
+        (vMoves, vDeg) <- ST.gets $ \st -> (nodeMoves v st, getDegree v st)
+        when (Set.null vMoves && vDeg < k) $ addToWL v Simplify
+
+  in ST.gets (nodeMoves u) >>= mapM_ freezeMove
+
+selectSpill :: Int -> ST.State RAState ()
+selectSpill k = do
+  -- TO DO : make sure m doesn't have a tiny live range
+  m <- popWL PotSpilled
+  addToWL m Simplify
+  freezeMoves k m
+
+assignColors :: Int -> ST.State RAState ()
+assignColors k =
+  let loop = do
+        selectStackEmpty <- ST.gets $ Set.null . _selectedStack . _workLists
+        when (not selectStackEmpty) assignNode
+
+      assignNode = do
+        n <- popWL Select
+        okColors <- ST.gets $ okayColors n
+        if Set.null okColors
+          then addToWL n ActSpilled
+          else addToWL n Colored >> colorTemp n okColors
+        loop
+
+      okayColors u state = Set.fromList [0..k-1] `Set.difference` neighborColors u state
+
+      neighborColors n state =
+        let neighbors = allAdjacent n state
+            theirColors = Set.map (\t -> fromMaybe (-1) . colorOf (getAlias t state) $ state) neighbors
+        in theirColors
+
+      colorTemp n colors = color %= M.insert n (Set.findMin colors)
+
+      colorCoalescedNodes = do
+        allCoalesced <- ST.gets $ _coalescedNodes . _workLists
+        forM_ allCoalesced $ \t -> do
+          t' <- ST.gets $ getAlias t
+          Just tCol <- ST.gets $ colorOf t'
+          color %= M.insert t tCol
+
+  in loop >> colorCoalescedNodes
+
+rewriteProgram :: Set.Set S.Temp -> [Instr] ->  ST.State S.SymbolTable [Instr]
+rewriteProgram spilled instrs = return (trace  "Should be rewriting the program. " instrs)
