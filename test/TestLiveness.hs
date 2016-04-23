@@ -67,11 +67,21 @@ testIG1 = do
                                 (rightColor /= leftColor))
           does
 
+      haveBeenCoalesced (t1, n1) (t2, n2) = do
+        let Just col1 = M.lookup t1 colors
+            Just col2 = M.lookup t2 colors
+        assertBool ("error: expected " ++ n1 ++ " and " ++ n2 ++ " to have been coalesced.")
+          (col1 == col2)
+
   assertBool "You got your live-ins and live-outs wrong!" $ (map snd instrs) == (M.elems livenessMap)
 
+  {-- print the colors map
   when (trace (show . map (\(t, s) ->
                             (fromJust $ M.lookup t colors, s, t)) $ temps) True) $ return ()
+  --}
 
+  haveBeenCoalesced j b
+  haveBeenCoalesced c d
   interferes j [f, e, h, g]       $ [k, b, c, m, d]
   interferes h [j, g]             $ [k, d, c, b, m, e, f]
   interferes g [h, k, j]          $ [d, c, b, m, e, f]

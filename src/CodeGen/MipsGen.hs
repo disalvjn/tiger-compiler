@@ -42,13 +42,14 @@ munchStm stm =
 
       T.Seq stm1 stm2 -> munchStm stm1 >> munchStm stm2
 
-      T.Jump (T.Name label) jumpTo -> emit $ A.Oper (A.B label) [] [] (Just jumpTo)
+      T.Jump (T.Name label) jumpTo -> emit $ A.Oper (A.J label) [] [] (Just jumpTo)
       T.Jump exp jumpTo -> do
                exp' <- munchExp exp
                emit $ A.Oper (A.JR exp') [exp'] [] (Just jumpTo)
 
-      T.CJump op l r f t -> makeBranch (relopToAssem op) l r f t
+      T.CJump op l r t f -> makeBranch (relopToAssem op) l r f t
 
+      T.Move (T.Temp t) (T.Const c) -> emit $ A.Oper (A.LI t c) [] [t] Nothing
       T.Move (T.Temp t) r -> do
                   r' <- munchExp r
                   emit $ A.Oper (A.MOVE t r') [t, r'] [t] Nothing
@@ -106,6 +107,7 @@ munchExp exp = do
       emit $ A.Oper (A.LW result at' 0) [at'] [result] Nothing
       return result
 
+    T.Const 0 -> RWS.asks (Fr.zero . Fr.specialRegs)
     T.Const i -> do
       emit $ A.Oper (A.LI result i) [] [result] Nothing
       return result

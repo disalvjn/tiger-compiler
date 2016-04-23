@@ -16,7 +16,7 @@ import qualified Data.Set as Set
 import qualified Symbol as S
 import qualified Data.Map as M
 import qualified Control.Monad.State.Strict as ST
-import Data.Maybe(fromJust, fromMaybe, catMaybes, isJust)
+import Data.Maybe(fromMaybe, catMaybes, isJust)
 import Control.Monad(forM_, when)
 import Util
 import Debug.Trace(trace)
@@ -109,15 +109,18 @@ fromMoveList Frozen = moveSets . frozenMoves
 fromMoveList Constrained = moveSets . constrainedMoves
 fromMoveList Coalesced = moveSets . coalescedMoves
 
-lg msg = when (trace msg True) $ return ()
 
 addToWL :: S.Temp -> WorkList -> ST.State RAState ()
 addToWL temp wl = do
   lg ("Adding " ++ (show temp) ++ " to worklist " ++ (show wl))
   memberOf <- ST.gets $ M.lookup temp . _nodeMembership . _workLists
-  whenJust memberOf (\ wl -> (fromWorkList wl) %= Set.delete temp)
-  workLists . nodeMembership %= M.insert temp wl
-  (fromWorkList wl) %= Set.insert temp
+  let add = do
+        workLists . nodeMembership %= M.insert temp wl
+        (fromWorkList wl) %= Set.insert temp
+  case memberOf of
+    Just Precolored -> return ()
+    Just wl -> (fromWorkList wl) %= Set.delete temp >> add
+    Nothing -> add
 
 popWL :: WorkList -> ST.State RAState S.Temp
 popWL wl = do
@@ -166,7 +169,8 @@ nodeMoves temp state =
 getAlias :: S.Temp -> RAState -> S.Temp
 getAlias temp state =
   if Set.member temp . _coalescedNodes . _workLists $ state
-  then getAlias (fromJust . M.lookup temp . _alias $ state) state
+  then let Just alias = M.lookup temp . _alias $ state
+       in getAlias alias state
   else temp
 
 allAdjacent :: S.Temp -> RAState -> Set.Set S.Temp
@@ -194,9 +198,9 @@ doTo accessor action = ST.gets accessor >>= action
 (%=$) x y = x %= ST.execState y
 
 
-allocateRegisters :: Int -> M.Map S.Temp Color -> [Instr]
+allocateRegisters :: Int -> M.Map S.Temp Color -> Set.Set Color -> [Instr]
                   -> ST.State S.SymbolTable (M.Map S.Temp Color)
-allocateRegisters k precolored program =
+allocateRegisters k precolored reserved program =
   let flowgraph = flowGraph program
       livenessMap = liveness flowgraph
 
@@ -214,14 +218,14 @@ allocateRegisters k precolored program =
         build precolored flowgraph livenessMap
         makeWorkLists k
         loop
-        assignColors k
+        assignColors k reserved
         ST.gets $ _spilledNodes . _workLists
 
       run =
         let (spilledNodes, raState) = ST.runState go emptyRAState
         in if Set.null spilledNodes
            then return $ _color raState
-           else rewriteProgram spilledNodes program >>= allocateRegisters k precolored
+           else rewriteProgram spilledNodes program >>= allocateRegisters k precolored reserved
 
   in run
 
@@ -247,8 +251,8 @@ build precolored (FlowGraph control def use) liveness =
         forM_ (M.keys precolored) (\t -> addToWL t Precolored)
 
       buildForNode node = do
-        let defs = fromJust $ M.lookup node def
-            outs = Set.toList . snd . fromJust $ M.lookup node liveness
+        let defs = fromMaybe [] $ M.lookup node def
+            outs = Set.toList . snd . fromMaybe (Set.empty, Set.empty) $ M.lookup node liveness
             live = defs ++ outs
         forM_ live $ \temp -> iGraph %=$ Graph.addNode temp >> addToWL temp Initial
         let edges = [(def,out) | def <- defs, out <- outs]
@@ -267,7 +271,7 @@ build precolored (FlowGraph control def use) liveness =
           _ -> forM_ edges addEdge
 
 
-  in buildPrecolored >> mapM_ buildForNode (Graph.nodes control)
+  in buildPrecolored >> mapM_ buildForNode (Graph.nodes control) >> doTo _iGraph (lg . show)
 
 -- Preconditions:
 --    1) It's known whether every temp is move related.
@@ -363,7 +367,7 @@ coalesce k =
           $ addToWL u Simplify
 
       combine (u, v) = do
-        lg $ "Combining: " ++ (show u) ++ " and " ++ (show v)
+        --lg $ "Combining: " ++ (show u) ++ " and " ++ (show v)
         addToWL v CoalescedWL
         alias %= M.insert v u
         -- every move associated with v becomes associated with u
@@ -428,8 +432,8 @@ selectSpill k = do
   addToWL m Simplify
   freezeMoves k m
 
-assignColors :: Int -> ST.State RAState ()
-assignColors k =
+assignColors :: Int -> Set.Set Color -> ST.State RAState ()
+assignColors k reserved =
   let loop = do
         selectStackEmpty <- ST.gets $ Set.null . _selectedStack . _workLists
         when (not selectStackEmpty) assignNode
@@ -442,7 +446,9 @@ assignColors k =
           else addToWL n Colored >> colorTemp n okColors
         loop
 
-      okayColors u state = Set.fromList [0..k-1] `Set.difference` neighborColors u state
+      okayColors u state = Set.fromList [0..k-1]
+                           `Set.difference` neighborColors u state
+                           `Set.difference` reserved
 
       neighborColors n state =
         let neighbors = allAdjacent n state

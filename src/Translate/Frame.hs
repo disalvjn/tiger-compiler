@@ -1,10 +1,11 @@
 module Translate.Frame(Frame(..), Access(..), Fragment(..), SpecialRegs(..), Registers(..),
                        newFrame, escapesToAccesses, wordSize, externalCall, viewShift
-                      , calldefs, createRegs) where
+                      , calldefs, createRegs, colors) where
 import qualified Control.Monad.State.Strict as ST
 import qualified Symbol as S
 import qualified Translate.Tree as Tr
 import qualified CodeGen.Assem as Assem
+import qualified Data.Map as M
 import Control.Applicative
 
 wordSize = 4
@@ -43,6 +44,16 @@ data SpecialRegs a = SpecialRegs { zero :: a -- always zero
                                  , fp :: a -- frame pointer ; callee save
                                  , ra :: a -- return address
                                  }
+
+colors :: (Ord a) => Registers a -> M.Map a Int
+colors (Registers (SpecialRegs zero at v0 v1 k0 k1 gp sp fp ra) args calleeSave callerSave) =
+  let arg = M.fromList $ zip args [4..7]
+      callee = M.fromList $ zip calleeSave [16..23]
+      caller = M.fromList $ zip callerSave ([8..15] ++ [24..25])
+      special = M.fromList [(zero, 0), (at, 1), (v0, 2), (v1, 3)
+                           ,(k0, 26), (k1, 27), (gp, 28), (sp, 29)
+                           ,(fp, 30), (ra, 31)]
+  in M.unions [arg, callee, caller, special]
 
 createRegs :: ST.State S.SymbolTable (Registers S.Temp)
 createRegs = do

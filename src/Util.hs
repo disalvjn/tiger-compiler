@@ -1,7 +1,9 @@
-module Util(whenJust, liftState, dropState, safeLast, anyDuplicates) where
+module Util(whenJust, liftState, dropState, safeLast, anyDuplicates, lg) where
 import qualified Control.Monad.RWS as RWS
 import qualified Control.Monad.State.Strict as ST
 import qualified Data.Set as Set
+import Debug.Trace(trace)
+import Control.Monad(when)
 
 whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
 whenJust x f = maybe (return ()) f x
@@ -32,3 +34,5 @@ anyDuplicates list =
                         then Just x
                         else go xs $ Set.insert x set
     in go list Set.empty
+
+lg msg = when (trace msg True) $ return ()

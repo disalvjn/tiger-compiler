@@ -16,7 +16,7 @@ maybeOr x y =
       Nothing -> y
       Just _ -> x
 
-spy x = trace (show x) x
+spy msg x = trace (msg ++ "  :\n " ++ (show x) ++ "\n\n") x
 
 {-- This module very closely follows Appel's provided code
   (as in, I consulted it before hand, mulled it over, tried re-implementing it,
@@ -26,9 +26,9 @@ spy x = trace (show x) x
 canonicize :: Stm -> ST.State S.SymbolTable [Stm]
 canonicize stm = do
   linear <- linearize stm
-  blocks <- basicBlocks (spy linear)
-  traced <- traceSchedule (spy blocks)
-  return (spy traced)
+  blocks <- basicBlocks (spy "linear" linear)
+  traced <- traceSchedule (spy "blocks" blocks)
+  return (spy "traced" traced)
 
 {-- Post conditions:
   1. The parent of every Stm node is a Stm
@@ -132,23 +132,23 @@ data Block = Block S.Label [Stm] Stm
 
 basicBlocks :: [Stm] -> ST.State S.SymbolTable ([Block], S.Label) -- blocks, epilogue label
 basicBlocks stms = do
-  epilogue <- trace "begin basicBlocks" S.genLabel
+  epilogue <- S.genLabel
   let go stms block blocks curLabel =
           let nextBlock restStms jump =
                   let blockStms = reverse block
                       blockDatum = Block (fromJust curLabel) blockStms jump
-                  in go restStms [] (blockDatum : blocks) curLabel
-          in case block of
+                  in go restStms [] (blockDatum : blocks) Nothing
+          in case curLabel of
             -- If we're starting a new block
-            [] -> case stms of
+            Nothing -> case stms of
                     -- and there are no statements left, then we're done
                     [] -> return $ reverse blocks
                     -- if the next statement is a label, we're good
-                    (labStm@(Label lab) : stms') -> go stms' [labStm] blocks (Just lab)
+                    (labStm@(Label lab) : stms') -> go stms' [] blocks (Just lab)
                     -- if the next statement isn't a label, we need to create one
                     _ -> do
                         entryLabel <- S.genLabel
-                        go stms [Label entryLabel] blocks (Just entryLabel)
+                        go stms [] blocks (Just entryLabel)
 
             -- if we're in the middle of a block
             _ -> case stms of
@@ -188,8 +188,8 @@ type Trace = [Block]
 
 traceSchedule :: ([Block], S.Label) -> ST.State S.SymbolTable [Stm]
 traceSchedule (blocks, epilogueLabel) = do
-  let traces = trace "findTraces" (findTraces blocks)
-  newStms <- merge epilogueLabel $ concat traces
+  let traces = findTraces blocks
+  newStms <- merge epilogueLabel $ spy "concat_traces: " $ concat traces
   return newStms
 
 findTraces :: [Block] -> [Trace]
@@ -232,11 +232,11 @@ findTraces blocks =
 --    false label, do nothing.
 --    true label, switch the true and false labels and negate the relop.
 --    neither t/f label, create a new false label f' whose sole statement is JUMP f.
--- If a Jump is followed directly by its only label, remove the jump and label.
+-- If a Jump is followed directly by its only label, remove the jump.
 merge :: S.Label -> [Block] -> ST.State S.SymbolTable [Stm]
 merge epilogue [] = return [Label epilogue]
 merge epilogue (Block lab stms jump : restBlocks) = do
-  restStms <- merge epilogue restBlocks
+  restStms <- fmap (spy "restStms: ") $ merge epilogue restBlocks
   let joinedStms = (Label lab) : (stms ++ (jump : restStms))
       joinedStmsWithNewCJump = do
         f' <- S.genLabel
@@ -244,9 +244,9 @@ merge epilogue (Block lab stms jump : restBlocks) = do
             newJump = [CJump op e1 e2 t f', Label f', Jump (Name f) [f]]
         return $ (Label lab) : (stms ++ newJump ++ restStms)
   case (jump, restStms) of
-    (Jump _ [label], (Label l : restStms')) ->
+    (Jump _ [label], (Label l : _)) ->
         if label == l
-        then return $ (Label lab) : (stms ++ restStms')
+        then return $ (Label lab) : (stms ++ restStms)
         else return joinedStms
 
     (CJump op e1 e2 t f, (Label l : _)) ->

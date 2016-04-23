@@ -27,14 +27,15 @@ import Control.Monad(liftM)
 --}
 
 translate :: TransConfig -> Semant.TypedExp
-          -> ST.State S.SymbolTable (Tr.Stm, [Fr.Fragment])
+          -> ST.State S.SymbolTable ([Tr.Stm], [Fr.Fragment])
 translate config ast = do
   desugaredAst <- desugar ast
   astWithUniqueIds <- makeIdsUnique desugaredAst
   (mainFrame, access) <- buildAccessMap astWithUniqueIds
   (trans, frags) <- dropState (translateExp access mainFrame Nothing astWithUniqueIds) config
   transStm <- Tr.asStm trans
-  return (transStm, Monoid.appEndo frags [])
+  canonTrans <- canonicize transStm
+  return (canonTrans, Monoid.appEndo frags [])
 
 asExp = liftState . Tr.asExp
 asStm = liftState . Tr.asStm
@@ -200,7 +201,7 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
 
       IfExp pred conseq alt -> do
                tpred       <- liftM Tr.asCx $ recur pred
-               tconseq     <- recur pred
+               tconseq     <- recur conseq
                talt        <- maybe (return . Tr.Nx . Tr.ExpStm $ Tr.Const 0) recur alt
                conseqLabel <- liftState S.genLabel
                altLabel    <- liftState S.genLabel

@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Symbol(empty, name, intern, genSym, genTemp, genLabel, symbol,
-              Symbol, Temp, Label, SymbolTable, namedLabel) where
+              Symbol, Temp, Label(..), SymbolTable, namedLabel) where
 import qualified Data.Map as M
 import Control.Monad.State.Strict
 import Control.Lens
