@@ -50,6 +50,7 @@ munchStm stm =
       T.CJump op l r t f -> makeBranch (relopToAssem op) l r f t
 
       T.Move (T.Temp t) (T.Const c) -> emit $ A.Oper (A.LI t c) [] [t] Nothing
+      -- T.Move (T.Temp t) (T.Binop T.Plus r (T.Const c)
       T.Move (T.Temp t) r -> do
                   r' <- munchExp r
                   emit $ A.Oper (A.MOVE t r') [t, r'] [t] Nothing
@@ -64,6 +65,7 @@ munchStm stm =
       T.Move to@(T.Mem _) from -> makeSW 0 from to
       -- Should the general case assume that something is being moved into Temp or Mem?
 
+      T.ExpStm (T.Const _) -> return ()
       T.ExpStm e -> munchExp e >> return ()
 
 relopToAssem T.Eq = A.BEQ
@@ -127,10 +129,14 @@ munchExp exp = do
 munchArgs :: [T.Exp] -> CodegenResults [S.Temp]
 munchArgs args = do
   argRegs <- RWS.asks Fr.argRegs
+  -- if the function is user defined, the static link is passed in v1.
+  -- Otherwise, v1 contains the first argument.
+  v1 <- RWS.asks $ Fr.v1 . Fr.specialRegs
+  let allArgRegs = v1 : argRegs
   args' <- mapM munchExp args
   -- silently fail on functions with too many parameters
-  zipWithM_ (\ arg reg -> emit $ A.Oper (A.MOVE reg arg) [arg] [reg] Nothing) args' argRegs
-  return argRegs
+  zipWithM_ (\ arg reg -> emit $ A.Oper (A.MOVE reg arg) [arg] [reg] Nothing) args' allArgRegs
+  return allArgRegs
 
 binopToAssem T.Plus = A.ADD
 binopToAssem T.Minus = A.SUB

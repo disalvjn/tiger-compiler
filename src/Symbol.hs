@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Symbol(empty, name, intern, genSym, genTemp, genLabel, symbol,
-              Symbol, Temp, Label(..), SymbolTable, namedLabel) where
+              Symbol, Temp, Label(..), SymbolTable, namedLabel, labelToString) where
 import qualified Data.Map as M
 import Control.Monad.State.Strict
 import Control.Lens
@@ -40,6 +40,12 @@ namedLabel name = do
   label <- genLabel
   labelToStr %= M.insert label name
   return label
+
+labelToString :: Label -> SymbolTable -> String
+labelToString lab@(Label i) st =
+  case M.lookup lab (_labelToStr st) of
+   Just name -> name
+   Nothing -> "L" ++ (show i)
 
 intern :: String -> State SymbolTable Symbol
 intern symName = do

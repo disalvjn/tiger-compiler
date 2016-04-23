@@ -29,7 +29,11 @@ data Instr temp label = Oper (Assem temp label) [temp] [temp] (Maybe [label]) --
 canFallThrough :: Instr temp label -> Bool
 canFallThrough (Oper (J _) _ _ _) = False
 canFallThrough (Oper (JR _) _ _ _) = False
-canFallThrough (Oper (JAL _) _ _ _) = False
+-- This was the cause of a nasty, nasty bug!
+-- I'm leaving this here as a reminder of what happens when you don't think! stupid stupid!
+-- of course, it raises the question of whether J and JR can "fall through", but I'll
+-- think about that some other time...
+-- canFallThrough (Oper (JAL _) _ _ _) = False
 canFallThrough _ = True
 
 isMove (Oper (MOVE _ _) _ _ _) = True
@@ -71,4 +75,4 @@ formatAssem NOOP _ _ = "nop"
 
 format :: Instr temp label -> (temp -> String) -> (label -> String) -> String
 format (Oper instr _ _ _) ts ls = formatAssem instr ts ls
-format (Label l) ts ls = "\n" ++ ls l ++ " : "
+format (Label l) ts ls = "\n" ++ ls l ++ ":"

@@ -17,7 +17,7 @@ import qualified Symbol as S
 import qualified Data.Map as M
 import qualified Control.Monad.State.Strict as ST
 import Data.Maybe(fromMaybe, catMaybes, isJust)
-import Control.Monad(forM_, when)
+import Control.Monad(forM_, when, unless)
 import Util
 import Debug.Trace(trace)
 
@@ -215,6 +215,7 @@ allocateRegisters k precolored reserved program =
                     else if doSpill then selectSpill k >> loop else return ()
 
       go = do
+        lg $ show flowgraph
         build precolored flowgraph livenessMap
         makeWorkLists k
         loop
@@ -262,16 +263,16 @@ build precolored (FlowGraph control def use) liveness =
             addToML (u,v) WorkList
             -- every node that's live here is associated with the move
             forM_ live $ (\n -> tempMoves %= update (Set.insert (u,v)) Set.empty n)
-            -- If we have a move like a <- c, where b1... bj are live-out, then
-            -- edge (a, bi) should be created only when c /= bi, because a and c might
+            -- If we have a move like u <- v, where b1... bj are live-out, then
+            -- edge (u, bi) should be created only when v /= bi, because u and v might
             -- not interfere, and not creating an edge will allow them to coalesce.
-            -- If c is used later, then the edge (a,c) will be created eventually.
-            forM_ edges $ (\(x, y) -> when (x /= v && y /= v) (addEdge (x,y)))
+            -- If v is used later, then the edge (u,v) will be created eventually.
+            forM_ edges $ (\(x, y) -> unless (x == u && y == v) (addEdge (x,y)))
 
           _ -> forM_ edges addEdge
 
 
-  in buildPrecolored >> mapM_ buildForNode (Graph.nodes control) >> doTo _iGraph (lg . show)
+  in buildPrecolored >> mapM_ buildForNode (Graph.nodes control)  >> doTo _iGraph (lg . show)
 
 -- Preconditions:
 --    1) It's known whether every temp is move related.
@@ -367,7 +368,7 @@ coalesce k =
           $ addToWL u Simplify
 
       combine (u, v) = do
-        --lg $ "Combining: " ++ (show u) ++ " and " ++ (show v)
+        lg $ "Combining: " ++ (show u) ++ " and " ++ (show v)
         addToWL v CoalescedWL
         alias %= M.insert v u
         -- every move associated with v becomes associated with u

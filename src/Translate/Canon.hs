@@ -16,7 +16,7 @@ maybeOr x y =
       Nothing -> y
       Just _ -> x
 
-spy msg x = trace (msg ++ "  :\n " ++ (show x) ++ "\n\n") x
+spy msg x = x --trace (msg ++ "  :\n " ++ (show x) ++ "\n\n") x
 
 {-- This module very closely follows Appel's provided code
   (as in, I consulted it before hand, mulled it over, tried re-implementing it,

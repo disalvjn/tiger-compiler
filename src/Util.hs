@@ -35,4 +35,5 @@ anyDuplicates list =
                         else go xs $ Set.insert x set
     in go list Set.empty
 
-lg msg = when (trace msg True) $ return ()
+-- lg msg = return ()
+lg msg =  when (trace msg True) $ return ()

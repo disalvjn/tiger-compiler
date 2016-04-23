@@ -143,10 +143,12 @@ createRecordType fieldNames fieldTypes = do
 rootEnv :: ST.State S.SymbolTable Environment
 rootEnv = do
   let predefinedFuns=  [("print", FunEntry [StrType] UnitType),
-                        ("flush", FunEntry [] UnitType),
-                        ("getchar", FunEntry [] StrType),
-                        ("ord", FunEntry [StrType] IntType),
-                        ("chr", FunEntry [IntType] StrType),
+                        ("printInt", FunEntry [IntType] UnitType),
+                        ("readStr", FunEntry [IntType] StrType),
+                        ("readInt", FunEntry [] IntType),
+                        --("flush", FunEntry [] UnitType),
+                        --("ord", FunEntry [StrType] IntType),
+                        --("chr", FunEntry [IntType] StrType),
                         ("size", FunEntry [StrType] IntType),
                         ("substring", FunEntry [StrType, IntType, IntType] StrType),
                         ("concat", FunEntry [StrType, StrType] StrType),
