@@ -35,7 +35,7 @@ munchStm stm =
         makeSW offset from to = do
           from' <- munchExp from
           to' <- munchExp to
-          emit $ A.Oper (A.SW to' from' offset) [from', to'] [] Nothing
+          emit $ A.Oper (A.SW to' from' offset) [from'] [to'] Nothing
 
         makeAddI dest src c = do
           src' <- munchExp src
@@ -69,7 +69,7 @@ munchStm stm =
 
       T.Move (T.Temp t) r -> do
                   r' <- munchExp r
-                  emit $ A.Oper (A.MOVE t r') [t, r'] [t] Nothing
+                  emit $ A.Oper (A.MOVE t r') [r'] [t] Nothing
 
       T.Move (T.Mem (T.Binop T.Plus to (T.Const c))) from -> makeSW c from to
       T.Move (T.Mem (T.Binop T.Plus (T.Const c) to)) from -> makeSW c from to
@@ -82,6 +82,8 @@ munchStm stm =
       -- Should the general case assume that something is being moved into Temp or Mem?
 
       T.ExpStm (T.Const _) -> return ()
+      T.ExpStm (T.Temp _) -> return ()
+      T.ExpStm (T.Name _) -> return ()
       T.ExpStm e -> munchExp e >> return ()
 
 relopToAssem T.Eq = A.BEQ

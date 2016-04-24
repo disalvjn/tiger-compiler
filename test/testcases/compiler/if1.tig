@@ -1,0 +1,7 @@
+(if 1 then printInt(2) else printInt(3);
+ if 0 then printInt(4) else printInt(5);
+ if 1-4 then printInt(6) else printInt(7);
+ if 1+4 then (printInt(8);printInt(9)) else (printInt(1);printInt(2));
+ if (if 1 then 2 else 0)
+    then (if 0 then printInt(1) else printInt(2))
+    else (if 4 then printInt(5) else printInt(6)))

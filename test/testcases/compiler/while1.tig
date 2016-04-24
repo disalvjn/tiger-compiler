@@ -1,0 +1,10 @@
+(while 0 do printInt(999) ; /* shouldn't print anything */
+ let var i := 0
+ in while i < 4 do
+          let var j := 0
+          in while j < 3 do
+                (j := j+1;
+                 if i > 2 then break else (printInt(i); printInt(j)));
+             i := i + 1
+          end
+  end)

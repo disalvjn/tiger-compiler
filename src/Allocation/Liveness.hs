@@ -1,4 +1,4 @@
-module Allocation.Liveness(flowGraph, liveness, FlowGraph(..), LivenessMap) where
+module Allocation.Liveness(flowGraph, liveness, printFlowGraph, printLivenessMap, FlowGraph(..), LivenessMap) where
 import Util
 import qualified Allocation.DirectedGraph as Graph
 import qualified Control.Monad.State.Strict as ST
@@ -7,7 +7,7 @@ import qualified Data.Map as M
 import qualified Data.Set as Set
 import qualified CodeGen.Assem as A
 import Data.Maybe(fromMaybe)
-import Control.Monad(when)
+import Control.Monad(when, forM_)
 
 type Instr = A.Instr S.Temp S.Label
 type InstrNode = Graph.Node Instr
@@ -62,6 +62,8 @@ flowGraph instrs =
 
   in FlowGraph graph def use
 
+printFlowGraph (FlowGraph control _ _) = Graph.printGraph control
+
 {-- Building the Interference Graph
 
 --}
@@ -71,32 +73,42 @@ type LivenessMap = M.Map InstrNode (Set.Set S.Temp, Set.Set S.Temp) -- node -> (
 
 liveness :: FlowGraph -> LivenessMap
 liveness (FlowGraph control def use) =
-  let liveOutAtNode node = do
+  let liveOutAtNode :: InstrNode -> ST.State LivenessMap (Set.Set S.Temp, Set.Set S.Temp)
+      liveOutAtNode node = do
         let defs = Set.fromList . fromMaybe [] $ M.lookup node def
             uses = Set.fromList . fromMaybe [] $ M.lookup node use
             successors = Graph.successors node control
+            calcLiveIn liveOut = uses `Set.union` (liveOut `Set.difference` defs)
 
             -- live-in[node] = use[n] U (live-out[node] - def[n])
             -- live-out[node] = U live-in[s], s in succ[n]
             loop (liveIn, liveOut) = do
-              let liveIn' = uses `Set.union` (liveOut `Set.difference` defs)
+              let liveIn' = calcLiveIn liveOut
               ST.modify $ M.insert node (liveIn', liveOut)
               buildLivenessMap successors
-              succLiveIns <- mapM (ST.gets . (\n -> fst . fromMaybe (Set.empty, Set.empty)
-                                                    . M.lookup n)) successors
-              let liveOut' = Set.unions succLiveIns
-              ST.modify $ M.insert node (liveIn', liveOut')
+              returnOrLoop (liveIn', liveOut)
 
+            returnOrLoop (liveIn, liveOut) = do
+              succLiveIns <- ST.gets $ \st -> map (\n -> fst . fromMaybe (Set.empty, Set.empty)
+                                                         $ M.lookup n st) successors
+              let liveOut' = Set.unions succLiveIns
+                  liveIn' = calcLiveIn liveOut'
+              ST.modify $ M.insert node (liveIn', liveOut')
               if liveIn == liveIn' && liveOut == liveOut'
-              then return (liveIn, liveOut)
+              then return (liveIn', liveOut')
               else loop (liveIn', liveOut')
 
-        --init <- ST.gets $ fromMaybe (Set.empty, Set.empty) . M.lookup node
         cache <- ST.gets $ M.lookup node
         case cache of
-          Just liveness -> return liveness
+          Just liveness -> returnOrLoop liveness
           Nothing -> loop (Set.empty, Set.empty)
 
-      buildLivenessMap = mapM liveOutAtNode
+      buildLivenessMap = mapM_ liveOutAtNode
 
   in ST.execState (buildLivenessMap (Graph.nodes control)) M.empty
+
+printLivenessMap m = do
+  forM_ (M.toList m) $ \(node, (liveIn, liveOut)) -> do
+      lg $ (show node) ++ "-> \n"
+      lg $ "  in :  " ++ (show liveIn)
+      lg $ "  out : " ++ (show liveOut) ++ "\n"

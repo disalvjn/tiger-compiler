@@ -215,7 +215,9 @@ allocateRegisters k precolored reserved program =
                     else if doSpill then selectSpill k >> loop else return ()
 
       go = do
-        lg $ show flowgraph
+        printFlowGraph flowgraph
+        printLivenessMap livenessMap
+        --lg $ show flowgraph
         build precolored flowgraph livenessMap
         makeWorkLists k
         loop

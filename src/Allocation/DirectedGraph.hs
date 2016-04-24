@@ -1,13 +1,15 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Allocation.DirectedGraph(Node, DGraph,
-                                empty, newNode, addNode, newEdge, newBiEdge,
+                                empty, newNode, addNode, newEdge, newBiEdge, printGraph,
                                 content, successors, predecessors, nodes, isEdge) where
 import qualified Data.Map as M
 import qualified Data.Set as Set
 import qualified Control.Monad.State.Strict as ST
 import Data.Maybe(fromJust)
 import Control.Lens
+import Control.Monad(forM_)
 import Data.Maybe(fromMaybe)
+import Util
 
 {-- Node is a wrapper for types that don't support Ord --}
 newtype NodeId = NodeId Int deriving (Ord,Eq,Show)
@@ -72,3 +74,10 @@ nodes = _gnodes
 
 isEdge :: Ord a => a -> a -> DGraph a -> Bool
 isEdge from to = Set.member (from, to) . _edges
+
+--printGraph :: (Show a) => DGraph a -> ()
+printGraph dgraph = do
+  let s = M.toList $ _succs dgraph
+  forM_ s $ \(node, followedBy) -> do
+    lg $ (show node) ++ " -> \n"
+    forM_ followedBy $ \fb -> lg $ "  " ++ (show fb) ++ "\n"
