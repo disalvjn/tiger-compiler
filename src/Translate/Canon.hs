@@ -201,7 +201,7 @@ findTraces blocks =
             let isMarked label = Set.member label marked
             in case stm of
                  Jump _ labels -> find (not . isMarked) labels >>= startingWith
-                 CJump _ _ _ f t -> case (not . isMarked $ f, not . isMarked $ t) of
+                 CJump _ _ _ t f -> case (not . isMarked $ f, not . isMarked $ t) of
                                       (True, True) -> startingWith f `maybeOr` startingWith t
                                       (True, False) -> startingWith f
                                       (False, True) -> startingWith t

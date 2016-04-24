@@ -37,6 +37,15 @@ munchStm stm =
           to' <- munchExp to
           emit $ A.Oper (A.SW to' from' offset) [from', to'] [] Nothing
 
+        makeAddI dest src c = do
+          src' <- munchExp src
+          emit $ A.Oper (A.ADDI dest src' c) [src'] [dest] Nothing
+
+        arithInto op dest src1 src2 = do
+          src1' <- munchExp src1
+          src2' <- munchExp src2
+          emit $ A.Oper (op dest src1' src2') [src1', src2'] [dest] Nothing
+
     in case stm of
       T.Label l -> emit $ A.Label l
 
@@ -50,7 +59,14 @@ munchStm stm =
       T.CJump op l r t f -> makeBranch (relopToAssem op) l r f t
 
       T.Move (T.Temp t) (T.Const c) -> emit $ A.Oper (A.LI t c) [] [t] Nothing
-      -- T.Move (T.Temp t) (T.Binop T.Plus r (T.Const c)
+      T.Move (T.Temp t) (T.Binop T.Plus r (T.Const c)) -> makeAddI t r c
+      T.Move (T.Temp t) (T.Binop T.Plus (T.Const c) r) -> makeAddI t r c
+      T.Move (T.Temp t) (T.Binop T.Minus r (T.Const c)) -> makeAddI t r (-c)
+      T.Move (T.Temp t) (T.Binop T.Plus r1 r2) -> arithInto A.ADD t r1 r2
+      T.Move (T.Temp t) (T.Binop T.Minus r1 r2) -> arithInto A.SUB t r1 r2
+      T.Move (T.Temp t) (T.Binop T.Mul r1 r2) -> arithInto A.MUL t r1 r2
+      T.Move (T.Temp t) (T.Binop T.Div r1 r2) -> arithInto A.DIV t r1 r2
+
       T.Move (T.Temp t) r -> do
                   r' <- munchExp r
                   emit $ A.Oper (A.MOVE t r') [t, r'] [t] Nothing

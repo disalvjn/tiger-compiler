@@ -14,6 +14,7 @@ import qualified Data.Map as M
 import qualified Symbol as S
 import qualified Control.Monad.State.Strict as ST
 import qualified Translate.Tree as Tr
+import Translate.Tree( (->-), (->+))
 import qualified Data.List as Data.List
 import qualified Control.Monad.RWS as RWS
 import qualified Data.Monoid as Monoid
@@ -145,11 +146,11 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                                                          (Tr.Const fieldNum)
                                            moveStm = Tr.Move field exp
                                            restInits = createInitStatements exps (fieldNum + 1)
-                                       in Tr.Seq moveStm restInits
+                                       in moveStm ->- restInits
                    allocStm = Tr.Move temp callMalloc
                    inits = createInitStatements transInitExps 0
-                   allocAndInit = Tr.Seq allocStm inits
-               return . Tr.Ex $ Tr.Eseq allocAndInit temp
+                   allocAndInit = allocStm ->- inits
+               return . Tr.Ex $ allocAndInit ->+ temp
 
       ArrayExp _ size init -> do
                {-- translate size and init. Call a runtime function. --}
@@ -168,7 +169,7 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                     case exps of
                       [] -> Tr.Const 0
                       [x] -> x
-                      (x:xs) -> Tr.Eseq (Tr.ExpStm x) (intoESeqExp xs)
+                      (x:xs) -> Tr.ExpStm x ->+ intoESeqExp xs
 
       AssignExp lvalue rvalue -> do
                transL <- translateVarIntoExp access frame breakTo lvalue
@@ -185,14 +186,15 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                testLabel <- liftState S.genLabel
                bodyLabel <- liftState S.genLabel
                doneLabel <- liftState S.genLabel
-               transTest <- recurIntoExp testExp
+               transTest <- fmap Tr.asCx $ recur testExp
                transBody <- translateExp access frame (Just doneLabel) bodyExp >>= asStm
-               let test = Tr.Seq (Tr.Label testLabel)
-                          $ Tr.CJump Tr.Lt transTest (Tr.Const 1) doneLabel bodyLabel
-                   body = Tr.Seq (Tr.Label bodyLabel)
-                          $ Tr.Seq transBody (Tr.Jump (Tr.Name testLabel) [testLabel])
+               let test = Tr.Label testLabel
+                          ->- transTest bodyLabel doneLabel
+                   body = Tr.Label bodyLabel
+                          ->- transBody
+                          ->- Tr.Jump (Tr.Name testLabel) [testLabel]
                    done = Tr.Label doneLabel
-               return . Tr.Nx $ Tr.Seq test (Tr.Seq body done)
+               return . Tr.Nx $ test ->- body ->- done
 
       -- ForExp should never happen -- desugar must be run before translation
 
@@ -210,36 +212,37 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                let jumpToJoinLabel = Tr.Jump (Tr.Name joinLabel) [joinLabel]
                    unpackage ex =
                        case ex of
-                         Tr.Ex exp -> return $ Tr.Seq (Tr.Move result exp) jumpToJoinLabel
+                         Tr.Ex exp -> return $ Tr.Move result exp ->- jumpToJoinLabel
                          Tr.Cx genstm -> do
                                  tLabel <- liftState S.genLabel
                                  fLabel <- liftState S.genLabel
-                                 let whenTrueDo = Tr.Seq (Tr.Move result (Tr.Const 1))
-                                                  jumpToJoinLabel
-                                     whenFalseDo = Tr.Seq (Tr.Move result (Tr.Const 0))
-                                                   jumpToJoinLabel
-                                 return $ Tr.Seq (genstm tLabel fLabel)
-                                            $ Tr.Seq (Tr.Label tLabel)
-                                            $ Tr.Seq whenTrueDo
-                                            $ Tr.Seq (Tr.Label fLabel) whenFalseDo
-                         Tr.Nx stm -> return
-                                      $ Tr.Seq stm
-                                      $ Tr.Seq (Tr.Move result (Tr.Const 0)) jumpToJoinLabel
+                                 let whenTrueDo = Tr.Move result (Tr.Const 1)
+                                                  ->- jumpToJoinLabel
+                                     whenFalseDo = Tr.Move result (Tr.Const 0)
+                                                   ->- jumpToJoinLabel
+                                 return $ genstm tLabel fLabel
+                                      ->- Tr.Label tLabel
+                                      ->- whenTrueDo
+                                      ->- Tr.Label fLabel
+                                      ->- whenFalseDo
+                         Tr.Nx stm -> return $ stm
+                                      ->- Tr.Move result (Tr.Const 0)
+                                      ->- jumpToJoinLabel
                conseqBranch <- unpackage tconseq
                altBranch <- unpackage talt
-               let branchEtc = Tr.Seq (tpred conseqLabel altLabel)
-                               $ Tr.Seq (Tr.Label conseqLabel)
-                               $ Tr.Seq conseqBranch
-                               $ Tr.Seq (Tr.Label altLabel) altBranch
-                   join = Tr.Eseq (Tr.Label joinLabel) result
-               return . Tr.Ex $ Tr.Eseq branchEtc join
+               let branchEtc = tpred conseqLabel altLabel
+                               ->- Tr.Label conseqLabel
+                               ->- conseqBranch
+                               ->- Tr.Label altLabel
+                               ->- altBranch
+                   join = Tr.Label joinLabel ->+ result
+               return . Tr.Ex $ branchEtc ->+ join
 
       LetExp decs body -> do
                   varInits <- liftM (Tr.seqStm . catMaybes)
                               $ mapM (translateDec access frame breakTo) decs
                   transBody <- recurIntoExp body
-                  return . Tr.Ex $ Tr.Eseq varInits transBody
-
+                  return . Tr.Ex $ varInits ->+ transBody
 
 
 translateDec :: AccessMap -> Fr.Frame -> Maybe S.Label -> Semant.TypedDec
