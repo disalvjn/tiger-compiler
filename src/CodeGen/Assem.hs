@@ -15,8 +15,8 @@ data Assem temp label = ADD temp temp temp
                       | J label
                       | JAL label
                       | JR temp
-                      | LW temp temp Int
-                      | SW temp temp Int
+                      | LW temp temp Int -- into, from, from's offset
+                      | SW temp temp Int -- into, from, into's offset
                       | LI temp Int
                       | MOVE temp temp
                       | NOOP
@@ -68,7 +68,7 @@ formatAssem (J l) ts ls = "j " ++ (ls l)
 formatAssem (JR t) ts ls = "jr " ++ (ts t)
 formatAssem (JAL l) ts ls = "jal " ++ (ls l)
 formatAssem (LW t1 t2 i) ts ls = "lw " ++ (ts t1) ++ ", " ++ (show i) ++ "(" ++ (ts t2) ++ ")"
-formatAssem (SW t1 t2 i) ts ls = "sw " ++ (ts t1) ++ ", " ++ (show i) ++ "(" ++ (ts t2) ++ ")"
+formatAssem (SW t1 t2 i) ts ls = "sw " ++ (ts t2) ++ ", " ++ (show i) ++ "(" ++ (ts t1) ++ ")"
 formatAssem (LI t1 i) ts ls = "li " ++ (ts t1) ++ ", " ++ (show i)
 formatAssem (MOVE t1 t2) ts ls = "move " ++ (ts t1) ++ ", " ++ (ts t2)
 formatAssem NOOP _ _ = "nop"

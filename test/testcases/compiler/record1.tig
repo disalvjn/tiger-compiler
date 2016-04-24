@@ -1,0 +1,5 @@
+let type intTuple = {fst : int, snd : int}
+    var t := intTuple {fst = 6, snd = 10}
+in printInt(t.fst);
+   printInt(t.snd)
+end

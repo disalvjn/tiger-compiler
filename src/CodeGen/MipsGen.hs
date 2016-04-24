@@ -35,7 +35,8 @@ munchStm stm =
         makeSW offset from to = do
           from' <- munchExp from
           to' <- munchExp to
-          emit $ A.Oper (A.SW to' from' offset) [from'] [to'] Nothing
+          -- src=[from', to'] is definitely right; if it looks funny you're not thinking!
+          emit $ A.Oper (A.SW to' from' offset) [from', to'] [] Nothing
 
         makeAddI dest src c = do
           src' <- munchExp src
@@ -78,7 +79,7 @@ munchStm stm =
                   zero <- RWS.asks (Fr.zero . Fr.specialRegs)
                   from' <- munchExp from
                   emit $ A.Oper (A.SW zero from' c) [from'] [] Nothing
-      T.Move to@(T.Mem _) from -> makeSW 0 from to
+      T.Move (T.Mem to) from -> makeSW 0 from to
       -- Should the general case assume that something is being moved into Temp or Mem?
 
       T.ExpStm (T.Const _) -> return ()
@@ -106,6 +107,13 @@ munchExp exp = do
         return result
 
   case exp of
+    T.Binop T.Plus (T.Const 0) r -> munchExp r
+    T.Binop T.Plus r (T.Const 0) -> munchExp r
+    T.Binop T.Minus r (T.Const 0) -> munchExp r
+    T.Binop T.Mul (T.Const 0) r -> RWS.asks $ Fr.zero . Fr.specialRegs
+    T.Binop T.Mul r (T.Const 0) -> RWS.asks $ Fr.zero . Fr.specialRegs
+    T.Binop T.Mul (T.Const 1) r -> munchExp r
+    T.Binop T.Mul r (T.Const 1) -> munchExp r
     T.Binop T.Plus (T.Const c) r -> makeADDI r c
     T.Binop T.Plus l (T.Const c) -> makeADDI l c
     T.Binop T.Minus l (T.Const c) -> makeADDI l (-c)

@@ -141,9 +141,7 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                          [] -> Tr.ExpStm $ Tr.Const 0
                          (exp:exps) -> let field = Tr.Mem
                                                    $ Tr.Binop Tr.Plus temp
-                                                   $ Tr.Binop Tr.Mul
-                                                         (Tr.Const Fr.wordSize)
-                                                         (Tr.Const fieldNum)
+                                                   (Tr.Const (Fr.wordSize * fieldNum))
                                            moveStm = Tr.Move field exp
                                            restInits = createInitStatements exps (fieldNum + 1)
                                        in moveStm ->- restInits
@@ -157,7 +155,7 @@ translateExp access frame breakTo (Exp (datum@(pos, expType), exp)) =
                transSize <- recurIntoExp size
                transInit <- recurIntoExp init
                initArray <- RWS.asks initArrayLabel
-               return $ Fr.externalCall initArray [transSize, transInit]
+               return $ Fr.externalCall initArray [transInit, transSize]
 
       SeqExp exps -> do
                -- If there are n exps, n > 0, then execute the first n-1 exps, ignoring
@@ -287,23 +285,23 @@ translateVar access frame breakTo (Var ((_, varType), var)) =
                         let fp = createStaticLink access framePtr varParLabel frame
                         return . Tr.Ex . Tr.Mem $ Tr.Binop Tr.Plus (Tr.Const offset) fp
       FieldVar ofVar sym -> do
-               -- a.f is at Mem(+(Mem a [1], wordSize * offset(f) [2])) since
-               -- [1] all records are stored on the heap and
+               -- a.f is at Mem(+(a [1], wordSize * offset(f) [2])) since
+               -- [1] a is a ptr to the base addr of the record on the heap
                -- [2] all values are one word size large
                ofVarTrans <- translateVar access frame breakTo ofVar >>= asExp
                let Var ((_, (Type.RecordType fields _)), _) = ofVar
                    Just offset = Data.List.elemIndex sym $ map fst fields
                return . Tr.Ex . Tr.Mem
-                          $ Tr.Binop Tr.Plus (Tr.Mem ofVarTrans)
+                          $ Tr.Binop Tr.Plus ofVarTrans -- (Tr.Mem ofVarTrans)
                           $ Tr.Const (Fr.wordSize * offset)
 
       SubscriptVar ofVar subExp -> do
                ofVarTrans <- translateVar access frame breakTo ofVar >>= asExp
                subExpTrans <- translateIntoExp access frame breakTo subExp
                -- for a[i], a is a pointer to the base address of an array.
-               -- Therefore a[i] = Mem(+(Mem a, *(i, Const wordSize)))
+               -- Therefore a[i] = Mem(+(a, *(i, Const wordSize)))
                return . Tr.Ex . Tr.Mem
-                          $ Tr.Binop Tr.Plus (Tr.Mem ofVarTrans)
+                          $ Tr.Binop Tr.Plus ofVarTrans
                           $ Tr.Binop Tr.Mul subExpTrans (Tr.Const Fr.wordSize)
 
 createStaticLink access framePtr rootFrame leafFrame =

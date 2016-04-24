@@ -2,6 +2,7 @@ module TestCompiler (tests) where
 import Compile(compileFile)
 import Test.HUnit
 import qualified System.Process as SP
+import System.Directory(renameFile, createDirectoryIfMissing)
 
 --import System.IO (openFile, hClose, IOMode(WriteMode), hPutStr, getContents)
 
@@ -18,14 +19,22 @@ SPIM always prefaces the output with 5 lines of copyright stuff.
 --}
 
 --run :: String -> IO ()
-run name = do
+run name =
   let base = "test/testcases/compiler/" ++ name
       strip = unlines . drop 5 . lines
-  compileFile $ base ++ ".tig"
-  expect <- readFile $ base ++ ".expected"
-  actualOutput <- fmap strip $ SP.readProcess "spim" ["-file", name ++ ".s"] ""
-  assertBool ("Expected: " ++ expect ++ "\n" ++ "But got: " ++ actualOutput) (expect == actualOutput)
+      go = do
+        compileFile $ base ++ ".tig"
+        expect <- readFile $ base ++ ".expected"
+        actualOutput <- fmap strip $ SP.readProcess "spim" ["-file", name ++ ".s"] ""
+        assertBool ("Expected: " ++ expect ++ "\n" ++ "But got: " ++ actualOutput)
+          (expect == actualOutput)
+        createDirectoryIfMissing False "compile_test_output"
+        renameFile (name ++ ".s") ("compile_test_output/"++name++".s")
+  in (name ++ ".tig") ~: go
 
 
-tests = test [ "if1.tig" ~: run "if1" ,
-               "while1.tig" ~: run "while1"]
+tests = test [ run "if1" ,
+               run "while1",
+               run "record1",
+               run "record2",
+               run "array1"]
