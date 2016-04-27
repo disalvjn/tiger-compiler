@@ -27,14 +27,14 @@ import Control.Monad(liftM)
 --}
 
 translate :: TransConfig -> Semant.TypedExp
-          -> ST.State S.SymbolTable (Tr.Stm, [Fr.Fragment])
+          -> ST.State S.SymbolTable (Fr.Frame, Tr.Stm, [Fr.Fragment])
 translate config ast = do
   desugaredAst <- desugar ast
   astWithUniqueIds <- makeIdsUnique desugaredAst
   (mainFrame, access) <- buildAccessMap astWithUniqueIds
   (trans, frags) <- dropState (translateExp access mainFrame Nothing astWithUniqueIds) config
   transStm <- Tr.asStm trans
-  return (transStm, Monoid.appEndo frags [])
+  return (mainFrame, transStm, Monoid.appEndo frags [])
 
 asExp = liftState . Tr.asExp
 asStm = liftState . Tr.asStm

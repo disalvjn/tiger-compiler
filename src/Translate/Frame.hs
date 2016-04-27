@@ -1,18 +1,24 @@
 module Translate.Frame(Frame(..), Access(..), Fragment(..), SpecialRegs(..), Registers(..),
-                       newFrame, escapesToAccesses, wordSize, externalCall, viewShift
-                      , calldefs, createRegs, colors, findMaxOutgoingParams, prologueEpilogue) where
+                       newFrame, escapesToAccesses, wordSize, externalCall, viewShift, sink
+                      , calldefs, createRegs, colors, findMaxOutgoingParams, prologueEpilogue
+                      , allocateLocals) where
 import qualified Control.Monad.State.Strict as ST
 import qualified Symbol as S
 import qualified Translate.Tree as Tr
 import Translate.Tree((->-))
 import qualified CodeGen.Assem as Assem
 import qualified Data.Map as M
+import qualified Data.List as L
+import Data.Maybe(fromMaybe)
 import Control.Applicative
 
 wordSize = 4
 
 data Access = InFrame Int | InReg S.Temp
             deriving (Show)
+
+isInFrame (InFrame _) = True
+isInFrame (InReg _) = False
 
 data FrameType = Mips deriving (Show)
 
@@ -80,8 +86,8 @@ newFrame = Frame Mips
 escapesToAccesses :: [Bool] -> [Bool] -> ST.State S.SymbolTable ([Access], [Access])
 escapesToAccesses formals locals = do
   formalEscapes <- go formals [0*wordSize, 1*wordSize..]
-  -- local var slots -1 and -2 are used by the dynamic link and ra
-  localEscapes <- go locals [-1*wordSize, -2*wordSize..]
+  -- local var slot -1 is used by the dynamic link
+  localEscapes <- go locals [-2*wordSize, -3*wordSize..]
   return (formalEscapes, localEscapes)
       where go escapes offsets@(offset : restOffsets) =
                 case escapes of
@@ -93,6 +99,17 @@ escapesToAccesses formals locals = do
                                accesses <- go rest offsets
                                temp <- S.genTemp
                                return $ InReg temp : accesses
+
+allocateLocals :: Frame -> Int -> (Frame, [Int]) -- newframe, list of offsets
+allocateLocals frame num =
+  let locals = frameLocals frame
+      isInFrame offset = case offset of
+                           InReg _ -> False
+                           _ -> True
+      InFrame lastOffset = fromMaybe (InFrame (-wordSize)) . L.find isInFrame $ reverse locals
+      nextOffsets = take num . iterate (\x -> x - wordSize) $ lastOffset - wordSize
+      newFrame = frame {frameLocals = locals ++ map InFrame nextOffsets}
+  in (newFrame, nextOffsets)
 
 externalCall :: S.Label -> [Tr.Exp] -> Tr.Ex
 externalCall name args = Tr.Ex $ Tr.Call (Tr.Name name) args
@@ -121,15 +138,18 @@ viewShift (Registers specials args someCalleeSaves _) frame body = do
                         calleeSavesTo calleeSaves
       calleeSaveMoveBacks = zipWith (\to from -> Tr.Move (Tr.Temp to) (Tr.Temp from))
                             calleeSaves calleeSavesTo
-  return $ Tr.seqStm formalMoves
-    ->- Tr.seqStm calleeSaveMoves
+  return $ Tr.seqStm calleeSaveMoves
+    ->- Tr.seqStm formalMoves
     ->- body
     ->- Tr.seqStm calleeSaveMoveBacks
 
 -- Appel's procEntryExit 2
-{--
+-- Indicate to the register allocator that the callee saves are live throughout.
 sink :: Registers S.Temp -> [Assem.Instr S.Temp label] -> [Assem.Instr S.Temp label]
---}
+sink (Registers specials _ calleeSaves _) body =
+  let (retAddr, framePtr, stackPtr) = (ra specials, fp specials, sp specials)
+      flag = Assem.Oper Assem.NOOP (retAddr:framePtr:stackPtr:calleeSaves) [] Nothing
+  in body ++ [flag]
 
 findMaxOutgoingParams :: Tr.Stm -> Int
 findMaxOutgoingParams =
@@ -153,20 +173,22 @@ findMaxOutgoingParams =
 
 
 -- Appel's procEntryExit 3
-prologueEpilogue :: Registers S.Temp -> Frame -> Int -> [Assem.Instr S.Temp S.Label]
+prologueEpilogue :: Registers S.Temp -> Frame -> Int -> [Assem.Instr S.Temp S.Label] -> Bool
                  -> [Assem.Instr S.Temp S.Label]
-prologueEpilogue (Registers specials _ calleeSaves _) frame outgoingParams body =
+prologueEpilogue (Registers specials _ calleeSaves _) frame outgoingParams body isFn =
   -- callee's frameFormals are stored in the caller's frame.
-  let frameSize = wordSize * (outgoingParams + (length $ frameLocals frame))
+  let frameSize = wordSize * (outgoingParams + (length . filter isInFrame . frameLocals $ frame))
       (framePtr, stackPtr, retAddr) = (fp specials, sp specials, ra specials)
-      prologue = [-- framePtr := stackPtr
-                  Assem.Oper (Assem.MOVE framePtr stackPtr) [stackPtr] [framePtr] Nothing
-                   -- allocate space for next frame
-                 , Assem.Oper (Assem.ADDI stackPtr stackPtr frameSize) [stackPtr] [stackPtr] Nothing
+      -- Added after register allocation, so no need to specify src and dest
+      prologue = [ if isFn
+                   then Assem.Oper (Assem.SW stackPtr framePtr (-wordSize)) [] [] Nothing
+                   else Assem.Oper Assem.NOOP [] [] Nothing
+                 , Assem.Oper (Assem.MOVE framePtr stackPtr) [] []  Nothing
+                 , Assem.Oper (Assem.ADDI stackPtr stackPtr (-frameSize)) [] [] Nothing
                  ]
-      -- deallocate frame
-      epilogue = [ Assem.Oper (Assem.MOVE stackPtr framePtr) [framePtr] [stackPtr] Nothing
-                   -- Indicate to the register allocator that the callee saves are live throughout.
-                 , Assem.Oper (Assem.JR retAddr) (retAddr:framePtr:stackPtr:calleeSaves) [] Nothing
-                 ]
+      epilogue = Assem.Oper (Assem.ADDI stackPtr stackPtr frameSize) [] [] Nothing
+                 : if isFn
+                   then [Assem.Oper (Assem.LW framePtr stackPtr (-wordSize)) [] [] Nothing
+                        , Assem.Oper (Assem.JR retAddr) [] [] Nothing]
+                   else []
   in prologue ++ body ++ epilogue

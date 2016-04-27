@@ -1,0 +1,5 @@
+let var x := 1
+    var y := 2
+    function addTo(z : int) : int = x+y+z
+in printInt(addTo(3))
+end

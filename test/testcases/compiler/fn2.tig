@@ -1,0 +1,6 @@
+let function adder(x : int) =
+             let function go(y : int) = printInt(x+y)
+             in go(1); go(2)
+             end
+in adder(5)
+end

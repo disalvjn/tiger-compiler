@@ -10,6 +10,7 @@ import qualified Control.Monad.State.Strict as ST
 import qualified Allocation.DirectedGraph as Graph
 import qualified Data.Set as Set
 import qualified Data.Map as M
+import qualified Translate.Frame as Fr
 import Data.Maybe(fromJust)
 import Control.Monad(when)
 import Debug.Trace(trace)
@@ -21,7 +22,16 @@ build instrs = do
   igraph <- ST.gets AC._iGraph
   return (igraph, livenessMap)
 
-color k instrs = snd $ ST.evalState (AC.allocateRegisters k M.empty Set.empty instrs) S.empty
+color k instrs =
+  let go = do
+        l1 <- S.genLabel
+        l2 <- S.genLabel
+        let frame = Fr.newFrame [] [] l1 l2
+        regs <- Fr.createRegs
+        AC.allocateRegisters M.empty Set.empty frame regs instrs
+
+      (_, colors, _) = ST.evalState go S.empty
+  in colors
 
 
 {-- This is an example based on Appel p230 (graph 11.1)

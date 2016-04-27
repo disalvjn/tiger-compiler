@@ -1,5 +1,5 @@
 module CodeGen.Assem(Assem(..), Instr(..), sourceRegs, destRegs, jumpsTo,
-                     canFallThrough, format) where
+                     canFallThrough, format, replace) where
 -- http://www.mrc.uidaho.edu/mrc/people/jff/digital/MIPSir.html
 data Assem temp label = ADD temp temp temp
                       | SUB temp temp temp
@@ -25,6 +25,34 @@ data Assem temp label = ADD temp temp temp
 data Instr temp label = Oper (Assem temp label) [temp] [temp] (Maybe [label]) -- assem, src, dest
                       | Label label
                       deriving (Show)
+
+replace :: (Eq a) => Instr a b -> a -> a -> Instr a b
+replace (Label l) _ _ = Label l
+replace (Oper op src dest jumpsTo) from to =
+  let r t = if t == from then to else t
+      adjustOp op = case op of
+                      ADD t1 t2 t3 -> ADD (r t1) (r t2) (r t3)
+                      SUB t1 t2 t3 -> SUB (r t1) (r t2) (r t3)
+                      ADDI t1 t2 i -> ADDI (r t1) (r t2) i
+                      DIV t1 t2 t3 -> DIV (r t1) (r t2) (r t3)
+                      MUL t1 t2 t3 -> MUL (r t1) (r t2) (r t3)
+                      BEQ t1 t2 l -> BEQ (r t1) (r t2) l
+                      BNE t1 t2 l -> BNE (r t1) (r t2) l
+                      BGT t1 t2 l -> BGT (r t1) (r t2) l
+                      BLT t1 t2 l -> BLT (r t1) (r t2) l
+                      BGE t1 t2 l -> BGE (r t1) (r t2) l
+                      BLE t1 t2 l -> BLE (r t1) (r t2) l
+                      J l -> J l
+                      JAL l -> JAL l
+                      JR t -> JR (r t)
+                      LW t1 t2 i -> LW (r t1) (r t2) i
+                      SW t1 t2 i -> SW (r t1) (r t2) i
+                      LI t i -> LI (r t) i
+                      MOVE t1 t2 -> MOVE (r t1) (r t2)
+                      NOOP -> NOOP
+      newSrc =  map r src
+      newDest = map r dest
+  in Oper (adjustOp op) newSrc newDest jumpsTo
 
 canFallThrough :: Instr temp label -> Bool
 canFallThrough (Oper (J _) _ _ _) = False
@@ -71,7 +99,7 @@ formatAssem (LW t1 t2 i) ts ls = "lw " ++ (ts t1) ++ ", " ++ (show i) ++ "(" ++ 
 formatAssem (SW t1 t2 i) ts ls = "sw " ++ (ts t2) ++ ", " ++ (show i) ++ "(" ++ (ts t1) ++ ")"
 formatAssem (LI t1 i) ts ls = "li " ++ (ts t1) ++ ", " ++ (show i)
 formatAssem (MOVE t1 t2) ts ls = "move " ++ (ts t1) ++ ", " ++ (ts t2)
-formatAssem NOOP _ _ = "nop"
+formatAssem NOOP _ _ = ""
 
 format :: Instr temp label -> (temp -> String) -> (label -> String) -> String
 format (Oper instr _ _ _) ts ls = formatAssem instr ts ls

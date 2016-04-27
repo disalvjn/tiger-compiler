@@ -16,10 +16,10 @@ import qualified Data.Set as Set
 import qualified Symbol as S
 import qualified Data.Map as M
 import qualified Control.Monad.State.Strict as ST
-import Data.Maybe(fromMaybe, catMaybes, isJust)
+import qualified Translate.Frame as Fr
+import Data.Maybe(fromMaybe, catMaybes, isJust, fromJust)
 import Control.Monad(forM_, when, unless)
 import Util
-import Debug.Trace(trace)
 
 type Color = Int
 type Instr = A.Instr S.Temp S.Label
@@ -112,7 +112,7 @@ fromMoveList Coalesced = moveSets . coalescedMoves
 
 addToWL :: S.Temp -> WorkList -> ST.State RAState ()
 addToWL temp wl = do
-  lg ("Adding " ++ (show temp) ++ " to worklist " ++ (show wl))
+  --lg ("Adding " ++ (show temp) ++ " to worklist " ++ (show wl))
   memberOf <- ST.gets $ M.lookup temp . _nodeMembership . _workLists
   let add = do
         workLists . nodeMembership %= M.insert temp wl
@@ -203,10 +203,11 @@ doTo accessor action = ST.gets accessor >>= action
 (%=$) x y = x %= ST.execState y
 
 
-allocateRegisters :: Int -> M.Map S.Temp Color -> Set.Set Color -> [Instr]
-                  -> ST.State S.SymbolTable ([Instr], (M.Map S.Temp Color))
-allocateRegisters k precolored reserved program =
-  let flowgraph = flowGraph program
+allocateRegisters :: M.Map S.Temp Color -> Set.Set Color -> Fr.Frame -> Fr.Registers S.Temp -> [Instr]
+                  -> ST.State S.SymbolTable ([Instr], (M.Map S.Temp Color), Fr.Frame)
+allocateRegisters precolored reserved frame regs program =
+  let k = M.size precolored
+      flowgraph = flowGraph program
       livenessMap = liveness flowgraph
 
       loop = do
@@ -233,8 +234,10 @@ allocateRegisters k precolored reserved program =
         let (spilledNodes, raState) = ST.runState go emptyRAState
         in if Set.null spilledNodes
            then let colors = _color raState
-                in return (removeCoalescedMoves colors program, colors)
-           else rewriteProgram spilledNodes program >>= allocateRegisters k precolored reserved
+                in return (removeCoalescedMoves colors program, colors, frame)
+           else do (frame', program') <- rewriteProgram (Fr.fp . Fr.specialRegs $ regs)
+                                         (Set.toList spilledNodes) frame program
+                   allocateRegisters precolored reserved frame' regs program'
 
   in run
 
@@ -280,7 +283,7 @@ build precolored (FlowGraph control def use) liveness =
           _ -> forM_ edges addEdge
 
 
-  in buildPrecolored >> mapM_ buildForNode (Graph.nodes control)  >> doTo _iGraph (lg . show)
+  in buildPrecolored >> mapM_ buildForNode (Graph.nodes control)  -- >> doTo _iGraph (lg . show)
 
 -- Preconditions:
 --    1) It's known whether every temp is move related.
@@ -453,7 +456,7 @@ assignColors k reserved =
         n <- popWL Select
         okColors <- ST.gets $ okayColors n
         if Set.null okColors
-          then addToWL n ActSpilled
+          then lg ("spilling: " ++ (show n)) >> addToWL n ActSpilled
           else addToWL n Colored >> colorTemp n okColors
         loop
 
@@ -472,20 +475,49 @@ assignColors k reserved =
 
         aliases <- ST.gets _alias
         colors <- ST.gets _color
-        lg (show aliases)
-        lg (show colors)
+        spilled <- ST.gets $ _spilledNodes . _workLists
+        if not $ Set.null spilled
+          then return ()
+          else do
+            lg (show aliases)
+            lg (show colors)
 
-        allCoalesced <- ST.gets $ _coalescedNodes . _workLists
-        lg (show allCoalesced)
-        forM_ allCoalesced $ \t -> do
-          t' <- ST.gets $ getAlias t
-          Just tCol <- ST.gets $ colorOf t'
-          color %= M.insert t tCol
+            allCoalesced <- ST.gets $ _coalescedNodes . _workLists
+            lg (show allCoalesced)
+            forM_ allCoalesced $ \t -> do
+              t' <- ST.gets $ getAlias t
+              Just tCol <- ST.gets $ colorOf t'
+              color %= M.insert t tCol
 
   in loop >> colorCoalescedNodes
 
-rewriteProgram :: Set.Set S.Temp -> [Instr] ->  ST.State S.SymbolTable [Instr]
-rewriteProgram spilled instrs = return (trace "should be rewriting program!" instrs)
+rewriteProgram :: S.Temp -> [S.Temp] -> Fr.Frame -> [Instr]
+               ->  ST.State S.SymbolTable (Fr.Frame, [Instr])
+rewriteProgram fp spilled frame instrs =
+  let (frame', offsets) = Fr.allocateLocals frame (length spilled)
+      tempLocations = M.fromList $ zip spilled offsets
+      getLocation temp = fromJust . M.lookup temp $ tempLocations
+
+      fixInstr instr = do
+        let useSpills = filter (\t -> t `elem` (A.sourceRegs instr)) spilled
+            destSpills = filter (\t -> t `elem` (A.destRegs instr)) spilled
+        newUseTemps <- mapM (\_ -> S.genTemp) useSpills
+        let useReplacements = zip useSpills newUseTemps
+        -- if something is used and defined, make sure it gets the same temp for its use and def
+        newDestTemps <- mapM (\t -> maybe S.genTemp return . lookup t $ useReplacements) destSpills
+        let destReplacements = zip destSpills newDestTemps
+            instr' = foldr (\(from, to) instr -> A.replace instr from to) instr
+                     $ useReplacements ++ destReplacements
+            prologue = map (\(from, to) -> A.Oper (A.LW to fp (getLocation from)) [fp] [to] Nothing)
+                       useReplacements
+            epilogue = map (\(from, to) -> A.Oper (A.SW fp to (getLocation from)) [fp, to] [] Nothing)
+                       destReplacements
+        return $ prologue ++ (instr' : epilogue)
+  in do
+    lg ("Rewriting\n" ++ (show instrs) ++ "\n")
+    instrs' <- fmap concat . mapM fixInstr $ instrs
+    lg (show instrs')
+    return (frame', instrs')
 
 
 removeCoalescedMoves colors instrs =

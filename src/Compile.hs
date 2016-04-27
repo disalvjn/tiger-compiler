@@ -26,8 +26,8 @@ import System.IO (openFile, hClose, IOMode(WriteMode), hPutStr, getContents)
 import qualified System.FilePath as Posix
 
 
---runtime = $(FileEmbed.embedStringFile "src/runtime.s")
-runtime = $(FileEmbed.embedStringFile "runtime.s")
+runtime = $(FileEmbed.embedStringFile "src/runtime.s") {-- building from shell --}
+--runtime = $(FileEmbed.embedStringFile "runtime.s")   {-- in emacs --}
 
 createConfigs :: ST.State S.SymbolTable (Fr.Registers S.Temp, Translate.TransConfig)
 createConfigs = do
@@ -57,35 +57,34 @@ compile program printSomewhere =
         case typed of
           Right typed' -> do
             (regs, config) <- createConfigs
-            (trans, frags) <- Translate.translate config typed'
+            (mainFrame, trans, frags) <- Translate.translate config typed'
             --lg (show trans)
-            assem <- treeToAssem regs trans
-            fragAssem <- mapM (processFrag regs) frags
+            main <- process regs trans mainFrame False
+            fns <- mapM (processFrag regs) frags
             --lg (show assem)
             --lg (show assem)
             --lg (show colors)
-            main <- color regs assem
-            fns <- mapM (color regs) fragAssem
             return $ Right (main, fns)
 
           Left err -> return $ Left err
 
+      processFrag regs (Fr.ProcFrag body frame) = process regs body frame True
 
-      processFrag regs frag =
-        case frag of
-          --Fr.StringFrag _ _ ->
-          Fr.ProcFrag body frame -> do
-            let maxOutgoingParams = Fr.findMaxOutgoingParams body
-            (startLabel : assem) <- treeToAssem regs body
-            return $ startLabel : Fr.prologueEpilogue regs frame maxOutgoingParams assem
+      process regs body frame isFn = do
+        let maxOutgoingParams = Fr.findMaxOutgoingParams body
+        assem <- treeToAssem regs body isFn
+        (startLabel : newAssem, colors, newFrame) <- color regs frame assem
+        let finalAssem = startLabel
+                         : Fr.prologueEpilogue regs newFrame maxOutgoingParams newAssem isFn
+        return (finalAssem, colors)
 
-      treeToAssem regs stm = do
+      treeToAssem regs stm isFn = do
         canon <- canonicize stm
-        fmap concat . mapM (Gen.gen regs) $ canon
+        fmap ((if isFn then Fr.sink regs else id) . concat) . mapM (Gen.gen regs) $ canon
 
-      color regs assem = do
+      color regs frame assem = do
         let reservedRegs = Set.fromList [0, 1, 29, 30] -- $zero, $at, $sp, $fp
-        Allocation.allocateRegisters 32 (Fr.colors regs) reservedRegs assem
+        Allocation.allocateRegisters (Fr.colors regs) reservedRegs frame regs assem
 
       emit assem colors symTab = do
         let tempToStr t = let Just col = M.lookup t colors

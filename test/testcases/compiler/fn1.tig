@@ -1,0 +1,3 @@
+let function add(x : int, y : int) : int = x+y
+in printInt(add(1,2)); printInt(add(6,add(7,8)))
+end

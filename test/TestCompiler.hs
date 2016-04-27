@@ -37,4 +37,7 @@ tests = test [ run "if1" ,
                run "while1",
                run "record1",
                run "record2",
-               run "array1"]
+               run "array1",
+               run "fn1",
+               run "fn2",
+               run "fn3"]
