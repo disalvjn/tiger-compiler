@@ -54,7 +54,7 @@ jumpsTo _ = []
 
 formatAssem :: Assem temp label -> (temp -> String) -> (label -> String) -> String
 formatAssem (ADD t1 t2 t3) ts ls = "add " ++ (ts t1) ++ ", " ++ (ts t2) ++ ", " ++ (ts t3)
-formatAssem (ADDI t1 t2 i) ts ls = "add " ++ (ts t1) ++ ", " ++ (ts t2) ++ ", " ++ (show i)
+formatAssem (ADDI t1 t2 i) ts ls = "addi " ++ (ts t1) ++ ", " ++ (ts t2) ++ ", " ++ (show i)
 formatAssem (SUB t1 t2 t3) ts ls = "sub " ++ (ts t1) ++ ", " ++ (ts t2) ++ ", " ++ (ts t3)
 formatAssem (DIV t1 t2 t3) ts ls = "div " ++ (ts t1) ++ ", " ++ (ts t2) ++ ", " ++ (ts t3)
 formatAssem (MUL t1 t2 t3) ts ls = "mul " ++ (ts t1) ++ ", " ++ (ts t2) ++ ", " ++ (ts t3)

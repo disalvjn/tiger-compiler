@@ -4,7 +4,6 @@ import AST.Traversal
 import Translate.Desugar(desugar)
 import Translate.UniqueIds(makeIdsUnique)
 import Translate.Access
-import Translate.Canon(canonicize)
 import Util
 import FrontEnd.Lex(Pos)
 import qualified Translate.Frame as Fr
@@ -28,15 +27,14 @@ import Control.Monad(liftM)
 --}
 
 translate :: TransConfig -> Semant.TypedExp
-          -> ST.State S.SymbolTable ([Tr.Stm], [Fr.Fragment])
+          -> ST.State S.SymbolTable (Tr.Stm, [Fr.Fragment])
 translate config ast = do
   desugaredAst <- desugar ast
   astWithUniqueIds <- makeIdsUnique desugaredAst
   (mainFrame, access) <- buildAccessMap astWithUniqueIds
   (trans, frags) <- dropState (translateExp access mainFrame Nothing astWithUniqueIds) config
   transStm <- Tr.asStm trans
-  canonTrans <- canonicize transStm
-  return (canonTrans, Monoid.appEndo frags [])
+  return (transStm, Monoid.appEndo frags [])
 
 asExp = liftState . Tr.asExp
 asStm = liftState . Tr.asStm
@@ -45,7 +43,8 @@ translateVarIntoExp access frame breakTo var = translateVar access frame breakTo
 frag fr = Monoid.Endo ([fr]++)
 
 type TranslateResults = RWS.RWS TransConfig (Monoid.Endo [Fr.Fragment]) S.SymbolTable Tr.Ex
-data TransConfig = TransConfig { framePtr :: S.Temp
+data TransConfig = TransConfig { registers :: Fr.Registers S.Temp
+                               , framePtr :: S.Temp
                                , returnRegister :: S.Temp
                                , mallocLabel :: S.Label
                                , stringEqLabel :: S.Label
@@ -262,14 +261,14 @@ translateDec access frame breakTo (Dec (_, dec)) =
                      in return . Just $ Tr.Move varLoc transInit
 
 translateFunDec access breakTo (Fundec (_, FundecF name params _ body)) = do
+  regs <- RWS.asks registers
   -- every declared function has a corresponding frame
   let (Just frame) = funFrameByName name access
+      label = Fr.frameName frame
   returnReg <- liftM Tr.Temp $ RWS.asks returnRegister
   transBody <- translateExp access frame breakTo body >>= asExp
-  let bodyWithReturn = Tr.Move returnReg transBody
-      bodyWithViewShift = Fr.viewShift frame bodyWithReturn
-  RWS.tell . frag $ Fr.ProcFrag bodyWithViewShift frame
-  return ()
+  bodyWithViewShiftAndReturn <- liftState . Fr.viewShift regs frame $ Tr.Move returnReg transBody
+  RWS.tell . frag $ Fr.ProcFrag (Tr.Label label ->- bodyWithViewShiftAndReturn) frame
 
 translateVar :: AccessMap -> Fr.Frame -> Maybe S.Label -> Semant.TypedVar -> TranslateResults
 translateVar access frame breakTo (Var ((_, varType), var)) =

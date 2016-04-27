@@ -1,9 +1,10 @@
 module Translate.Frame(Frame(..), Access(..), Fragment(..), SpecialRegs(..), Registers(..),
                        newFrame, escapesToAccesses, wordSize, externalCall, viewShift
-                      , calldefs, createRegs, colors) where
+                      , calldefs, createRegs, colors, findMaxOutgoingParams, prologueEpilogue) where
 import qualified Control.Monad.State.Strict as ST
 import qualified Symbol as S
 import qualified Translate.Tree as Tr
+import Translate.Tree((->-))
 import qualified CodeGen.Assem as Assem
 import qualified Data.Map as M
 import Control.Applicative
@@ -68,7 +69,8 @@ createRegs = do
 -- List of registers that are potentially trashed after calling a subroutine
 calldefs :: Registers a -> [a]
 calldefs (Registers specials args calleeSaves callerSaves) =
-    (v0 specials) : (v1 specials) : (gp specials) : (ra specials) : (args ++ callerSaves)
+    (v0 specials) : (v1 specials) : (gp specials)
+    : (k0 specials) : (k1 specials) : (ra specials) : (args ++ callerSaves)
 
 
 newFrame :: [Access] -> [Access] -> S.Label -> S.Label -> Frame
@@ -77,30 +79,94 @@ newFrame = Frame Mips
 -- REMEMBER: the static link is treated as formal that always escapes
 escapesToAccesses :: [Bool] -> [Bool] -> ST.State S.SymbolTable ([Access], [Access])
 escapesToAccesses formals locals = do
-  (formalEscapes, offset) <- go formals 0
-  (localEscapes, _) <- go locals offset
+  formalEscapes <- go formals [0*wordSize, 1*wordSize..]
+  -- local var slots -1 and -2 are used by the dynamic link and ra
+  localEscapes <- go locals [-1*wordSize, -2*wordSize..]
   return (formalEscapes, localEscapes)
-      where go escapes offset =
+      where go escapes offsets@(offset : restOffsets) =
                 case escapes of
-                  [] -> return ([], offset)
+                  [] -> return []
                   (True : rest) -> do
-                               (accesses, offset') <- go rest (offset + wordSize)
-                               return ((InFrame offset) : accesses, offset')
+                               accesses <- go rest restOffsets
+                               return $ InFrame offset : accesses
                   (False : rest) -> do
-                               (accesses, offset') <- go rest offset
-                               regLabel <- S.genTemp
-                               return ((InReg regLabel) : accesses, offset')
+                               accesses <- go rest offsets
+                               temp <- S.genTemp
+                               return $ InReg temp : accesses
 
 externalCall :: S.Label -> [Tr.Exp] -> Tr.Ex
 externalCall name args = Tr.Ex $ Tr.Call (Tr.Name name) args
 
 -- Appel's procEntryExit 1
-viewShift :: Frame -> Tr.Stm -> Tr.Stm
-viewShift f = id
+-- Does two things:
+-- 1) Moves every incoming argument into the place where it's seen by the procedure
+--    (some temp or a memory location).
+-- 2) Move every callee save reg into a new temp. This gives the register allocator an opportunity
+--    to spill them (since it can't spill precolored regs). If it doesn't, the moves will be coalesced.
+viewShift :: Registers S.Temp -> Frame -> Tr.Stm -> ST.State S.SymbolTable Tr.Stm
+viewShift (Registers specials args someCalleeSaves _) frame body = do
+  let calleeSaves = (fp specials) : (ra specials) : someCalleeSaves
+  calleeSavesTo <- mapM (\_ -> S.genTemp) calleeSaves
+  let toLocation access =
+        case access of
+          InReg t -> Tr.Temp t
+          InFrame offset -> Tr.Mem (Tr.Binop Tr.Plus framePtr (Tr.Const offset))
+      incomingTemps = map InReg $ (v1 specials) : args
+      -- mem spots 0..4 are reserved for dynamic link & escaping parameters passed in v1 & $a0-$a3
+      incomingMem = map (InFrame . (* wordSize)) [5..]
+      framePtr = Tr.Temp (fp specials)
+      formalMoves = zipWith (\ to from -> Tr.Move (toLocation to) (toLocation from))
+                    (frameFormals frame) (incomingTemps ++ incomingMem)
+      calleeSaveMoves = zipWith (\ to from -> Tr.Move (Tr.Temp to) (Tr.Temp from))
+                        calleeSavesTo calleeSaves
+      calleeSaveMoveBacks = zipWith (\to from -> Tr.Move (Tr.Temp to) (Tr.Temp from))
+                            calleeSaves calleeSavesTo
+  return $ Tr.seqStm formalMoves
+    ->- Tr.seqStm calleeSaveMoves
+    ->- body
+    ->- Tr.seqStm calleeSaveMoveBacks
 
 -- Appel's procEntryExit 2
+{--
 sink :: Registers S.Temp -> [Assem.Instr S.Temp label] -> [Assem.Instr S.Temp label]
-sink (Registers specials args calleeSave callerSave) fnBodyInstrs =
-    fnBodyInstrs ++ [(Assem.Oper Assem.NOOP [] ((v0 specials) : (sp specials) : (fp specials) :
-                                               args ++ calleeSave)
-                    Nothing)]
+--}
+
+findMaxOutgoingParams :: Tr.Stm -> Int
+findMaxOutgoingParams =
+  let inStm stm =
+        case stm of
+          Tr.Seq s1 s2 -> max (inStm s1) (inStm s2)
+          Tr.Jump exp _ -> (inExp exp)
+          Tr.CJump _ e1 e2 _ _ -> max (inExp e1) (inExp e2)
+          Tr.Move e1 e2 -> max (inExp e1) (inExp e2)
+          Tr.ExpStm e1 -> inExp e1
+          _ -> 0
+
+      inExp exp =
+        case exp of
+          Tr.Binop _ e1 e2 -> max (inExp e1) (inExp e2)
+          Tr.Mem e -> inExp e
+          Tr.Eseq s e -> max (inStm s) (inExp e)
+          Tr.Call fun args -> max (length args) $ max (inExp fun) (foldr max 0 (map inExp args))
+          _ -> 0
+  in inStm
+
+
+-- Appel's procEntryExit 3
+prologueEpilogue :: Registers S.Temp -> Frame -> Int -> [Assem.Instr S.Temp S.Label]
+                 -> [Assem.Instr S.Temp S.Label]
+prologueEpilogue (Registers specials _ calleeSaves _) frame outgoingParams body =
+  -- callee's frameFormals are stored in the caller's frame.
+  let frameSize = wordSize * (outgoingParams + (length $ frameLocals frame))
+      (framePtr, stackPtr, retAddr) = (fp specials, sp specials, ra specials)
+      prologue = [-- framePtr := stackPtr
+                  Assem.Oper (Assem.MOVE framePtr stackPtr) [stackPtr] [framePtr] Nothing
+                   -- allocate space for next frame
+                 , Assem.Oper (Assem.ADDI stackPtr stackPtr frameSize) [stackPtr] [stackPtr] Nothing
+                 ]
+      -- deallocate frame
+      epilogue = [ Assem.Oper (Assem.MOVE stackPtr framePtr) [framePtr] [stackPtr] Nothing
+                   -- Indicate to the register allocator that the callee saves are live throughout.
+                 , Assem.Oper (Assem.JR retAddr) (retAddr:framePtr:stackPtr:calleeSaves) [] Nothing
+                 ]
+  in prologue ++ body ++ epilogue

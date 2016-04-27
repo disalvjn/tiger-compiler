@@ -21,7 +21,7 @@ build instrs = do
   igraph <- ST.gets AC._iGraph
   return (igraph, livenessMap)
 
-color k instrs = ST.evalState (AC.allocateRegisters k M.empty Set.empty instrs) S.empty
+color k instrs = snd $ ST.evalState (AC.allocateRegisters k M.empty Set.empty instrs) S.empty
 
 
 {-- This is an example based on Appel p230 (graph 11.1)
