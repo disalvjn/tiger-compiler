@@ -1,0 +1,31 @@
+let type intarray = array of int
+    function quicksort(arr : intarray, size : int) =
+             let function go(start : int, fin : int) =
+                          if start < fin
+                          then let var piv := pivot(start, fin)
+                               in go(start, piv-1); go(piv+1, fin)
+                               end
+
+                 function pivot(start : int, fin : int) : int =
+                          let var pivi := (start + fin) / 2
+                              var piv := arr[pivi]
+                          in while start < fin do (
+                                   while start < size & arr[start] < piv do start := start + 1 ;
+                                   while fin >= 0 & arr[fin] >= piv do fin := fin -1;
+                                   if start < fin then swap(start, fin));
+                              start
+                          end
+
+                 function swap(i : int, j : int) =
+                          let var temp := arr[i]
+                          in arr[i] := arr[j];
+                             arr[j] := temp
+                          end
+              in go(0, size-1)
+              end
+    var size := 13
+    var toSort := intarray [size] of 0
+in for i := 0 to size-1 do toSort[i] := 12-i;
+   quicksort(toSort, size);
+   for i := 0 to size-1 do printInt(toSort[i])
+end

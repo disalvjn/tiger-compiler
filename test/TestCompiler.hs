@@ -40,4 +40,6 @@ tests = test [ run "if1" ,
                run "array1",
                run "fn1",
                run "fn2",
-               run "fn3"]
+               run "fn3",
+               run "fn4",
+               run "fn5"]

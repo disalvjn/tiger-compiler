@@ -80,7 +80,8 @@ calldefs (Registers specials args calleeSaves callerSaves) =
 
 
 newFrame :: [Access] -> [Access] -> S.Label -> S.Label -> Frame
-newFrame = Frame Mips
+newFrame formals locals name parentName =
+  Frame Mips formals (InFrame (-wordSize) : locals) {--dynamic link--} name parentName
 
 -- REMEMBER: the static link is treated as formal that always escapes
 escapesToAccesses :: [Bool] -> [Bool] -> ST.State S.SymbolTable ([Access], [Access])
