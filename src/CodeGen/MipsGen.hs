@@ -155,13 +155,21 @@ munchExp exp = do
 munchArgs :: [T.Exp] -> CodegenResults [S.Temp]
 munchArgs args = do
   argRegs <- RWS.asks Fr.argRegs
+  stackPtr <- RWS.asks $ Fr.sp . Fr.specialRegs
   -- if the function is user defined, the static link is passed in v1.
   -- Otherwise, v1 contains the first argument.
   v1 <- RWS.asks $ Fr.v1 . Fr.specialRegs
-  let allArgRegs = v1 : argRegs
   args' <- mapM munchExp args
-  -- silently fail on functions with too many parameters
-  zipWithM_ (\ arg reg -> emit $ A.Oper (A.MOVE reg arg) [arg] [reg] Nothing) args' allArgRegs
+  let allArgRegs = v1 : argRegs
+      passArgsInRegs = take 5 args'
+      passArgsInMem = drop 5 args'
+      stackPtrOffsets = [5*Fr.wordSize,6*Fr.wordSize..] -- slots 0-4 for escaping reg args
+  -- Pass the first 5 args in registers v1, a0-a3
+  zipWithM_ (\ arg reg -> emit $ A.Oper (A.MOVE reg arg) [arg] [reg] Nothing)
+    passArgsInRegs allArgRegs
+  -- store the 6th+ args in the outgoing params space in the current frame.
+  zipWithM_ (\ arg offset -> emit $ A.Oper (A.SW stackPtr arg offset) [stackPtr, arg] [] Nothing)
+    passArgsInMem stackPtrOffsets
   return allArgRegs
 
 binopToAssem T.Plus = A.ADD

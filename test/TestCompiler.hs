@@ -41,5 +41,6 @@ tests = test [ run "if1" ,
                run "fn1",
                run "fn2",
                run "fn3",
-               run "fn4",
-               run "fn5"]
+               run "fn4_recursive_factorial",
+               run "fn5_quicksort",
+               run "fn6_many_params"]

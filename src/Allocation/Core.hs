@@ -1,5 +1,6 @@
+{-- This very closely follows the pseudo-code in Appel ch11 (which is an excellent exposition) --}
+
 -- TO DO :
---   Rewrite program
 --   More efficient work list representations
 --   Spill priorities / spill heuristic
 
